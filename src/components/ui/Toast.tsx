@@ -17,11 +17,11 @@ export const Toast: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/95 px-4 py-3 shadow-xl backdrop-blur-md transition-all duration-200 max-w-sm">
+    <div className="fixed bottom-5 right-5 z-50 flex items-start gap-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 px-4 py-3 shadow-xl backdrop-blur-md transition-all duration-200 max-w-sm">
       {iconMap[toast.type]}
       <div className="text-xs">
-        <p className="font-semibold text-zinc-100">{toast.title}</p>
-        {toast.description && <p className="mt-0.5 text-zinc-400">{toast.description}</p>}
+        <p className="font-semibold text-zinc-900 dark:text-zinc-100">{toast.title}</p>
+        {toast.description && <p className="mt-0.5 text-zinc-500 dark:text-zinc-400">{toast.description}</p>}
       </div>
     </div>
   );

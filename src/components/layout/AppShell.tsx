@@ -10,7 +10,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 antialiased flex">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 antialiased flex transition-colors duration-200">
       {/* Sidebar */}
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
 

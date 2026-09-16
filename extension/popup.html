@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SentinelAI Protection Guard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="sentinel-popup-body">
+  <div class="sentinel-popup-container" role="main" aria-label="SentinelAI Extension Controls">
+    <!-- Header -->
+    <header class="sentinel-popup-header">
+      <div class="sentinel-brand">
+        <div class="sentinel-shield-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="sentinel-brand-text">
+          <h1 class="sentinel-title">SentinelAI</h1>
+          <span class="sentinel-subtitle">Cyber Guard for Gmail</span>
+        </div>
+      </div>
+      <span class="sentinel-badge sentinel-badge-demo" id="demo-mode-badge" tabIndex="0" aria-label="Demo Mode Indicator: Analysis simulated locally">
+        Demo Mode
+      </span>
+    </header>
+
+    <!-- Main Content -->
+    <main class="sentinel-popup-content">
+      <!-- Status Card -->
+      <section class="sentinel-card sentinel-status-card" aria-live="polite">
+        <div class="sentinel-status-main">
+          <div class="sentinel-status-info">
+            <span class="sentinel-status-indicator" id="status-dot"></span>
+            <div>
+              <p class="sentinel-status-title" id="status-title">Protection Active</p>
+              <p class="sentinel-status-desc" id="status-desc">Gmail threat detection is active.</p>
+            </div>
+          </div>
+          <!-- Toggle Switch -->
+          <label class="sentinel-switch" for="demo-protection-toggle" aria-label="Toggle SentinelAI Demo Protection">
+            <input type="checkbox" id="demo-protection-toggle" checked aria-checked="true">
+            <span class="sentinel-slider" aria-hidden="true"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Action Section: Test Demo Email -->
+      <section class="sentinel-action-section">
+        <div class="sentinel-section-header">
+          <h2 class="sentinel-section-title">Demo Testing</h2>
+        </div>
+        <p class="sentinel-action-hint">
+          Open the local SentinelAI security demo dashboard to test simulated threat analysis views.
+        </p>
+        <button type="button" id="btn-test-demo" class="sentinel-btn sentinel-btn-primary" aria-label="Test Demo Email - Opens local SentinelAI demo page">
+          <svg class="sentinel-btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+          <span>Test Demo Email</span>
+        </button>
+        <div id="demo-feedback-msg" class="sentinel-feedback-msg" style="display: none;" role="status"></div>
+      </section>
+
+      <!-- Privacy & Security Disclaimer -->
+      <section class="sentinel-privacy-section" aria-label="Privacy Note">
+        <div class="sentinel-privacy-box">
+          <svg class="sentinel-privacy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <p class="sentinel-privacy-text">
+            <strong>Demo mode:</strong> analysis is simulated locally. Email content is not uploaded or stored.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="sentinel-popup-footer">
+      <span>SentinelAI Guard v2.0</span>
+      <span>Local Sandbox</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

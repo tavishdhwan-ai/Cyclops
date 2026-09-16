@@ -29,6 +29,8 @@ interface ToastMessage {
   description?: string;
 }
 
+export type Theme = 'light' | 'dark';
+
 interface DemoContextType {
   stats: SecurityStats;
   emails: SecurityEmail[];
@@ -41,6 +43,13 @@ interface DemoContextType {
   activeWorkspace: typeof mockWorkspaces[0];
   toast: ToastMessage | null;
   isQuickScanOpen: boolean;
+  rescanKey: number;
+  emailReviewStatus: 'pending' | 'reviewed';
+  theme: Theme;
+  toggleTheme: () => void;
+  setTheme: (theme: Theme) => void;
+  triggerRescan: () => void;
+  setEmailReviewStatus: (status: 'pending' | 'reviewed') => void;
   setIsQuickScanOpen: (open: boolean) => void;
   showToast: (title: string, description?: string, type?: ToastMessage['type']) => void;
   quarantineEmail: (id: string) => void;
@@ -68,6 +77,63 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeWorkspace, setActiveWorkspace] = useState(mockWorkspaces[0]);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [isQuickScanOpen, setIsQuickScanOpen] = useState(false);
+  const [rescanKey, setRescanKey] = useState(0);
+  const [emailReviewStatus, setEmailReviewStatus] = useState<'pending' | 'reviewed'>('pending');
+  const [theme, setThemeState] = useState<Theme>('dark');
+
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('sentinel_theme') as Theme | null;
+      if (saved === 'light' || saved === 'dark') {
+        setThemeState(saved);
+        if (saved === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      } else {
+        const isDarkCurrently = document.documentElement.classList.contains('dark');
+        setThemeState(isDarkCurrently ? 'dark' : 'light');
+      }
+    } catch {
+      // Fallback
+    }
+  }, []);
+
+  const setTheme = (newTheme: Theme) => {
+    setThemeState(newTheme);
+    try {
+      localStorage.setItem('sentinel_theme', newTheme);
+    } catch {
+      // Ignore
+    }
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  };
+
+  const toggleTheme = () => {
+    setThemeState((currentTheme) => {
+      const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('sentinel_theme', nextTheme);
+      } catch {
+        // Ignore
+      }
+      if (nextTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      return nextTheme;
+    });
+  };
+
+  const triggerRescan = () => {
+    setRescanKey((prev) => prev + 1);
+  };
 
   const showToast = (title: string, description?: string, type: ToastMessage['type'] = 'info') => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -294,6 +360,13 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeWorkspace,
         toast,
         isQuickScanOpen,
+        rescanKey,
+        emailReviewStatus,
+        theme,
+        toggleTheme,
+        setTheme,
+        triggerRescan,
+        setEmailReviewStatus,
         setIsQuickScanOpen,
         showToast,
         quarantineEmail,

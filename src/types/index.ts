@@ -119,3 +119,28 @@ export interface WorkspaceSettings {
   slackWebhookUrl: string;
   browserExtensionPolicy: 'enforce' | 'optional' | 'disabled';
 }
+
+export interface PhishingHighlight {
+  phrase: string;
+  explanation: string;
+}
+
+export interface SentinelEmailFinding {
+  id: string;
+  title: string;
+  severity: 'Medium' | 'High' | 'Critical';
+  explanation: string;
+  iconName?: string;
+}
+
+export interface AttachmentScanItem {
+  id: string;
+  fileName: string;
+  fileType: 'PDF' | 'DOCX' | 'JPG' | 'ICS' | 'PKPASS' | string;
+  threatScore: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  findings: string[];
+  recommendation: string;
+  status: 'Scanning' | 'Analysis complete' | 'Reviewed';
+}
+

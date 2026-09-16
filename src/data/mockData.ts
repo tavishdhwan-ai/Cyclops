@@ -23,7 +23,7 @@ export const mockStats: SecurityStats = {
 };
 
 export const mockWorkspaces = [
-  { id: 'ws-1', name: 'Acme Corp', tier: 'Pro Plan', employees: 24 },
+  { id: 'ws-1', name: 'Acme Workspace', tier: 'Pro Plan', employees: 24 },
   { id: 'ws-2', name: 'Stark Ventures', tier: 'Enterprise', employees: 58 },
   { id: 'ws-3', name: 'Globex Digital', tier: 'Standard', employees: 12 },
 ];

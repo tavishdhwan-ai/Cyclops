@@ -9,11 +9,7 @@ import { SecurityAlert } from '../../types';
 import {
   AlertTriangle,
   ShieldCheck,
-  CheckCircle,
   Filter,
-  Info,
-  Server,
-  UserX,
   CheckCircle2,
 } from 'lucide-react';
 
@@ -32,18 +28,18 @@ export default function AlertsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-200 dark:border-zinc-800 pb-4">
         <div>
-          <h1 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-400" />
+          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 tracking-tight">
+            <AlertTriangle className="h-5 w-5 text-amber-500 dark:text-amber-400" />
             Security Threat Alert Center
           </h1>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
             Review active security incidents, phishing campaigns, and endpoint policy violations.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1 text-[11px] text-zinc-400">
+          <span className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 px-3 py-1 text-[11px] font-medium text-zinc-700 dark:text-zinc-400">
             {alerts.filter((a) => a.status === 'active').length} Active Alerts
           </span>
         </div>
@@ -52,15 +48,15 @@ export default function AlertsPage() {
       {/* Tabs & Severity Filters */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Status Tabs */}
-        <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1">
+        <div className="flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 p-1">
           {(['active', 'reviewed', 'resolved'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setStatusTab(tab)}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition-colors cursor-pointer ${
                 statusTab === tab
-                  ? 'bg-zinc-800 text-zinc-100 shadow-xs'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
               }`}
             >
               {tab} ({alerts.filter((a) => a.status === tab).length})
@@ -69,17 +65,17 @@ export default function AlertsPage() {
         </div>
 
         {/* Severity Filter */}
-        <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1">
-          <Filter className="h-3.5 w-3.5 text-zinc-500 ml-1.5" />
-          <span className="text-[11px] text-zinc-400 mr-1">Severity:</span>
+        <div className="flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 p-1">
+          <Filter className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500 ml-1.5" />
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 mr-1">Severity:</span>
           {['all', 'critical', 'high', 'medium', 'low'].map((sev) => (
             <button
               key={sev}
               onClick={() => setSeverityFilter(sev)}
-              className={`rounded-md px-2 py-1 text-xs capitalize transition-colors ${
+              className={`rounded-md px-2 py-1 text-xs capitalize transition-colors cursor-pointer ${
                 severityFilter === sev
-                  ? 'bg-zinc-800 text-zinc-100 font-medium'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
               }`}
             >
               {sev}
@@ -90,22 +86,22 @@ export default function AlertsPage() {
 
       {/* Alerts List */}
       <Card className="p-0 overflow-hidden">
-        <div className="divide-y divide-zinc-800/60">
+        <div className="divide-y divide-zinc-200 dark:divide-zinc-800/60">
           {filteredAlerts.length > 0 ? (
             filteredAlerts.map((alert) => (
               <div
                 key={alert.id}
                 onClick={() => setSelectedAlert(alert)}
-                className="p-4 hover-card cursor-pointer hover:bg-zinc-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="p-4 hover-card cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
                 <div className="space-y-1 min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <Badge level={alert.severity}>{alert.severity}</Badge>
-                    <span className="text-xs font-semibold text-zinc-400">{alert.category}</span>
-                    <span className="text-zinc-600">•</span>
-                    <h3 className="text-sm font-bold text-zinc-100 truncate">{alert.title}</h3>
+                    <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{alert.category}</span>
+                    <span className="text-zinc-300 dark:text-zinc-600">•</span>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">{alert.title}</h3>
                   </div>
-                  <p className="text-xs text-zinc-400 line-clamp-1">{alert.description}</p>
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-1">{alert.description}</p>
                   <div className="flex items-center gap-3 text-[11px] text-zinc-500 pt-1">
                     <span>Affected: {alert.affectedEmployee}</span>
                     <span>•</span>
@@ -117,7 +113,7 @@ export default function AlertsPage() {
                   {alert.status === 'active' && (
                     <button
                       onClick={() => markAlertReviewed(alert.id)}
-                      className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+                      className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors cursor-pointer"
                     >
                       Mark Reviewed
                     </button>
@@ -125,13 +121,13 @@ export default function AlertsPage() {
                   {alert.status !== 'resolved' && (
                     <button
                       onClick={() => resolveAlert(alert.id)}
-                      className="rounded-lg border border-emerald-900/50 bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-900/60 transition-colors"
+                      className="rounded-lg border border-emerald-300 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer"
                     >
                       Resolve
                     </button>
                   )}
                   {alert.status === 'resolved' && (
-                    <span className="flex items-center gap-1 text-xs text-emerald-400 font-medium">
+                    <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                       <CheckCircle2 className="h-4 w-4" /> Resolved
                     </span>
                   )}
@@ -140,8 +136,8 @@ export default function AlertsPage() {
             ))
           ) : (
             <div className="py-12 text-center text-xs text-zinc-500">
-              <ShieldCheck className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
-              No alerts found under <strong className="text-zinc-300">{statusTab}</strong> status.
+              <ShieldCheck className="h-8 w-8 text-zinc-400 dark:text-zinc-600 mx-auto mb-2" />
+              No alerts found under <strong className="text-zinc-700 dark:text-zinc-300">{statusTab}</strong> status.
             </div>
           )}
         </div>
@@ -157,35 +153,35 @@ export default function AlertsPage() {
           maxWidth="xl"
         >
           <div className="space-y-4">
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 space-y-2">
+            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-400">{selectedAlert.category}</span>
+                <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{selectedAlert.category}</span>
                 <Badge level={selectedAlert.severity}>{selectedAlert.severity}</Badge>
               </div>
-              <h3 className="text-base font-bold text-zinc-100">{selectedAlert.title}</h3>
-              <p className="text-xs text-zinc-300 leading-relaxed">{selectedAlert.description}</p>
+              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">{selectedAlert.title}</h3>
+              <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">{selectedAlert.description}</p>
             </div>
 
             {/* AI Mitigation Plan */}
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 space-y-1.5">
-              <div className="text-xs font-semibold text-zinc-200">SentinelAI Automated Mitigation</div>
-              <p className="text-xs text-zinc-300 leading-relaxed">{selectedAlert.aiMitigationPlan}</p>
+            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4 space-y-1.5">
+              <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-200">SentinelAI Automated Mitigation</div>
+              <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">{selectedAlert.aiMitigationPlan}</p>
             </div>
 
             {/* Technical Indicators */}
             {selectedAlert.technicalDetails && (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 space-y-2 text-xs">
+              <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 space-y-2 text-xs">
                 <span className="text-[10px] text-zinc-500 uppercase font-semibold">Technical Threat Indicators</span>
                 {selectedAlert.technicalDetails.sourceIp && (
-                  <p className="text-zinc-300 font-mono">Source IP: {selectedAlert.technicalDetails.sourceIp}</p>
+                  <p className="text-zinc-800 dark:text-zinc-300 font-mono">Source IP: {selectedAlert.technicalDetails.sourceIp}</p>
                 )}
                 {selectedAlert.technicalDetails.targetResource && (
-                  <p className="text-zinc-300">Target Resource: {selectedAlert.technicalDetails.targetResource}</p>
+                  <p className="text-zinc-800 dark:text-zinc-300">Target Resource: {selectedAlert.technicalDetails.targetResource}</p>
                 )}
                 {selectedAlert.technicalDetails.threatIndicators && (
                   <div className="flex flex-wrap gap-1 pt-1">
                     {selectedAlert.technicalDetails.threatIndicators.map((ind, i) => (
-                      <span key={i} className="rounded border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-400">
+                      <span key={i} className="rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-600 dark:text-zinc-400">
                         {ind}
                       </span>
                     ))}
@@ -195,14 +191,14 @@ export default function AlertsPage() {
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 border-t border-zinc-800 pt-4">
+            <div className="flex items-center justify-end gap-2 border-t border-zinc-200 dark:border-zinc-800 pt-4">
               {selectedAlert.status === 'active' && (
                 <button
                   onClick={() => {
                     markAlertReviewed(selectedAlert.id);
                     setSelectedAlert(null);
                   }}
-                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                  className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 cursor-pointer"
                 >
                   Mark as Reviewed
                 </button>
@@ -213,7 +209,7 @@ export default function AlertsPage() {
                     resolveAlert(selectedAlert.id);
                     setSelectedAlert(null);
                   }}
-                  className="rounded-lg border border-emerald-900/50 bg-emerald-950/40 px-4 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-900/60"
+                  className="rounded-lg border border-emerald-300 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 cursor-pointer"
                 >
                   Resolve Incident
                 </button>
