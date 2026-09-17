@@ -965,3 +965,127 @@ input:checked + .sentinel-slider:before {
   }
 }
 
+/* Attachment Metadata Section Styles */
+.sentinel-attachments-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(24, 24, 27, 0.4);
+  border: 1px solid var(--sentinel-border);
+  border-radius: var(--sentinel-radius-md);
+  padding: 10px;
+}
+
+.sentinel-attachments-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sentinel-attachments-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sentinel-text-muted);
+}
+
+.sentinel-attachments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sentinel-attachment-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: var(--sentinel-radius-sm);
+  background: var(--sentinel-bg);
+  border: 1px solid var(--sentinel-border);
+  font-size: 11px;
+}
+
+.sentinel-attachment-card.high-risk {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.sentinel-attachment-card.med-risk {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.sentinel-att-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--sentinel-text);
+}
+
+.sentinel-att-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  font-weight: 500;
+}
+
+/* Enhanced Risk Bar Pins and Boundary Markers */
+.sentinel-bar-track {
+  position: relative;
+  height: 8px;
+  width: 100%;
+  background: var(--sentinel-border);
+  border-radius: 9999px;
+  overflow: visible;
+}
+
+.sentinel-score-pin {
+  position: absolute;
+  top: -3px;
+  width: 14px;
+  height: 14px;
+  background: var(--sentinel-text);
+  border: 2px solid var(--sentinel-bg);
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(0,0,0,0.5);
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.sentinel-scale-boundaries {
+  position: relative;
+  height: 22px;
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.sentinel-scale-mark {
+  position: absolute;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--sentinel-text-dim);
+  transform: translateX(-50%);
+  text-align: center;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.sentinel-scale-mark small {
+  display: block;
+  font-size: 8px;
+  color: var(--sentinel-text-muted);
+  font-weight: 500;
+}
+
+.sentinel-scale-mark.pos-0 { left: 0%; transform: translateX(0%); text-align: left; }
+.sentinel-scale-mark.pos-25 { left: 25%; }
+.sentinel-scale-mark.pos-50 { left: 50%; }
+.sentinel-scale-mark.pos-75 { left: 75%; }
+.sentinel-scale-mark.pos-100 { left: 100%; transform: translateX(-100%); text-align: right; }
+
+

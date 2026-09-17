@@ -8,23 +8,15 @@ from app.scanner import analyze_demo_email
 
 app = FastAPI(
     title="SentinelAI Backend",
-    description="FastAPI Backend for SentinelAI Email Security Analysis (Phase 3A)",
+    description="FastAPI Backend for SentinelAI Email Security Analysis",
     version="0.1.0",
 )
 
-# Configure CORS for local development and Chrome Extensions
-allowed_origins = [
-    "http://127.0.0.1:3000",
-    "http://localhost:3000",
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-]
-
+# Configure CORS to allow Chrome Extensions and local development endpoints
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_origin_regex=r"^chrome-extension://.*$",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -69,6 +61,6 @@ async def health_check():
 async def scan_email(request: EmailScanRequest = EmailScanRequest()):
     """
     Perform security analysis on provided email metadata/body.
-    Returns controlled demo scan response for Phase 3A.
+    Returns deterministic rule-based scan response.
     """
     return analyze_demo_email(request)

@@ -17,6 +17,20 @@ def test_health_endpoint():
     assert data["mode"] == "demo"
 
 
+def test_options_preflight_chrome_extension():
+    """Verify that OPTIONS /scan-email handles CORS preflight from Chrome extensions successfully."""
+    headers = {
+        "Origin": "chrome-extension://abcdefghijklmnopqrstuvwxyz123456",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    }
+    response = client.options("/scan-email", headers=headers)
+    assert response.status_code == 200
+    assert "access-control-allow-origin" in response.headers
+    assert response.headers["access-control-allow-origin"] in ["*", "chrome-extension://abcdefghijklmnopqrstuvwxyz123456"]
+    assert "access-control-allow-methods" in response.headers
+
+
 def test_scan_email_endpoint():
     payload = {
         "sender": "billing@example.com",

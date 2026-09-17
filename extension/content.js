@@ -46,36 +46,36 @@
     mode: 'demo',
     status: 'completed',
     threat_score: 8.7,
-    risk_level: 'HIGH',
+    risk_level: 'CRITICAL',
     summary: 'Demo analysis detected several suspicious indicators.',
     findings: [
       {
         type: 'sender_impersonation',
         severity: 'high',
         title: 'Possible sender impersonation',
-        description: 'The sender information may require verification.'
+        description: 'The display name references Microsoft, but the sender domain does not appear related to Microsoft.'
       },
       {
         type: 'suspicious_link',
         severity: 'high',
         title: 'Suspicious link detected',
-        description: 'A link requires verification before opening.'
+        description: 'Link uses an IP address host (198.51.100.10) instead of a domain name.'
       },
       {
         type: 'credential_request',
         severity: 'critical',
         title: 'Credential request',
-        description: 'The message asks the recipient to verify a password.'
+        description: 'The message requests account, password, login, or identity information ("verify your password").'
       },
       {
         type: 'urgency',
         severity: 'medium',
         title: 'Urgency-based language',
-        description: 'The message creates pressure to act quickly.'
+        description: 'Email uses high-urgency language ("within 10 minutes") to create pressure to act quickly.'
       }
     ],
     attachments: [],
-    recommendation: 'Do not click links or open attachments until the sender is verified.'
+    recommendation: 'Do not click links or open attachments until the sender and request are verified through an out-of-band channel.'
   };
 
   // Initialize Extension State
@@ -337,6 +337,7 @@
     scanProgress = 15;
     scanStep = 'Checking sender & connecting to FastAPI backend...';
     reviewStatus = 'pending';
+    scanResults = null; // Clear stale results from previous email
 
     renderOrUpdatePanel(emailView);
 
@@ -546,16 +547,18 @@
                     </div>
                   </div>
 
-                  <!-- Risk Bar -->
+                  <!-- Risk Bar with range boundaries -->
                   <div class="sentinel-risk-bar-wrap">
-                    <div class="sentinel-risk-labels">
-                      <span>0 Low</span>
-                      <span>5 Med</span>
-                      <span class="sentinel-high-mark">${riskScore} ${riskLevelText}</span>
-                      <span>10 Crit</span>
+                    <div class="sentinel-scale-boundaries">
+                      <span class="sentinel-scale-mark pos-0">0<small>LOW</small></span>
+                      <span class="sentinel-scale-mark pos-25">2.5<small>MED</small></span>
+                      <span class="sentinel-scale-mark pos-50">5.0<small>HIGH</small></span>
+                      <span class="sentinel-scale-mark pos-75">7.5<small>CRIT</small></span>
+                      <span class="sentinel-scale-mark pos-100">10</span>
                     </div>
                     <div class="sentinel-bar-track">
                       <div class="sentinel-bar-fill" style="width: ${Math.min(100, Math.max(0, parseFloat(riskScore) * 10))}%;"></div>
+                      <div class="sentinel-score-pin" style="left: ${Math.min(100, Math.max(0, parseFloat(riskScore) * 10))}%;" title="Score: ${riskScore} (${riskLevelText})"></div>
                     </div>
                   </div>
 
@@ -563,6 +566,28 @@
                     ${escapeHtml(currentResults.summary || 'Demo analysis detected suspicious indicators requiring review.')}
                   </p>
                 </div>
+
+                ${currentResults.attachments && currentResults.attachments.length > 0 ? `
+                  <!-- Attachment Metadata Scan Results -->
+                  <div class="sentinel-attachments-section">
+                    <div class="sentinel-attachments-header">
+                      <span class="sentinel-attachments-title">Attachment Metadata (${currentResults.attachments.length})</span>
+                    </div>
+                    <div class="sentinel-attachments-list">
+                      ${currentResults.attachments.map(att => `
+                        <div class="sentinel-attachment-card ${att.threat_score >= 5.0 ? 'high-risk' : (att.threat_score >= 2.5 ? 'med-risk' : 'low-risk')}">
+                          <div class="sentinel-att-info">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            <span class="sentinel-att-name" title="${escapeHtml(att.filename || att.name || 'attachment')}">${escapeHtml(att.filename || att.name || 'attachment')}</span>
+                          </div>
+                          <div class="sentinel-att-meta">
+                            <span class="sentinel-badge-sev ${(att.risk_level || 'LOW').toLowerCase()}">${att.threat_score !== undefined ? att.threat_score.toFixed(1) : '0.0'} ${att.risk_level || 'LOW'}</span>
+                          </div>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </div>
+                ` : ''}
 
                 <!-- Findings List -->
                 <div class="sentinel-findings-section">

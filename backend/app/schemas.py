@@ -24,9 +24,20 @@ class Finding(BaseModel):
 
 
 class AttachmentResult(BaseModel):
-    name: str
+    filename: str
+    threat_score: float = Field(default=0.0, ge=0.0, le=10.0)
+    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"] = "LOW"
+    findings: List[Finding] = Field(default_factory=list)
+    summary: str = "No suspicious indicators detected."
+    name: Optional[str] = None
     status: str = "scanned"
     threat_found: bool = False
+
+    def model_post_init(self, __context):
+        if not self.name and self.filename:
+            self.name = self.filename
+        elif not self.filename and self.name:
+            self.filename = self.name
 
 
 class EmailScanResponse(BaseModel):
