@@ -1,0 +1,41 @@
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field
+
+
+class AttachmentInput(BaseModel):
+    name: Optional[str] = None
+    file_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+
+
+class EmailScanRequest(BaseModel):
+    sender: Optional[str] = None
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    links: List[str] = Field(default_factory=list)
+    attachments: List[AttachmentInput] = Field(default_factory=list)
+
+
+class Finding(BaseModel):
+    type: str
+    severity: Literal["low", "medium", "high", "critical"]
+    title: str
+    description: str
+
+
+class AttachmentResult(BaseModel):
+    name: str
+    status: str = "scanned"
+    threat_found: bool = False
+
+
+class EmailScanResponse(BaseModel):
+    scan_id: str = "demo-scan"
+    mode: Literal["demo"] = "demo"
+    status: str = "completed"
+    threat_score: float = Field(..., ge=0.0, le=10.0)
+    risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    summary: str
+    findings: List[Finding] = Field(default_factory=list)
+    attachments: List[AttachmentResult] = Field(default_factory=list)
+    recommendation: str

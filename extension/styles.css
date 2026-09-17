@@ -919,6 +919,43 @@ input:checked + .sentinel-slider:before {
   color: var(--sentinel-text-dim);
 }
 
+/* Mode Badges & Fallback Notices for Phase 3A */
+.sentinel-badge-mode {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sentinel-badge-mode.backend {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.sentinel-badge-mode.fallback {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.sentinel-fallback-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--sentinel-radius-md);
+  color: #f59e0b;
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
 /* Reduced Motion support */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
@@ -927,3 +964,4 @@ input:checked + .sentinel-slider:before {
     transition-duration: 0.01ms !important;
   }
 }
+

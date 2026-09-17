@@ -1,6 +1,6 @@
 /**
  * SentinelAI Gmail Security Guard - Content Script
- * Phase 2 Polish Add-ons Implementation
+ * Phase 3A Implementation: FastAPI Backend Integration & Extension Connection
  */
 
 (function () {
@@ -10,7 +10,7 @@
   }
   window.__SENTINEL_AI_CONTENT_SCRIPT_LOADED__ = true;
 
-  // Debugging toggle (default false as required)
+  // Debugging toggle
   const DEBUG = false;
 
   function debugLog(...args) {
@@ -21,11 +21,13 @@
 
   // Constants & State
   const PANEL_ID = 'sentinel-ai-panel';
+  const BACKEND_URL = 'http://127.0.0.1:8000/scan-email';
+  
   let isProtectionEnabled = true;
   let isCollapsed = false;
   let isScanning = false;
   let scanProgress = 0;
-  let scanStep = 'Checking sender domain & signatures...';
+  let scanStep = 'Initializing scan...';
   let scanTimer = null;
   let reviewStatus = 'pending'; // 'pending' | 'reviewed'
   let expandedFindingId = null;
@@ -33,37 +35,48 @@
   let observer = null;
   let debounceTimeout = null;
 
-  // Findings catalog for simulated analysis
-  const simulatedFindings = [
-    {
-      id: 'f-1',
-      title: 'Sender impersonation',
-      severity: 'High',
-      explanation: 'The sender domain does not match claimed Microsoft authentication headers.',
-      icon: 'UserX'
-    },
-    {
-      id: 'f-2',
-      title: 'Suspicious link',
-      severity: 'High',
-      explanation: 'Verification link points to an unverified external domain.',
-      icon: 'Link2Off'
-    },
-    {
-      id: 'f-3',
-      title: 'Credential request',
-      severity: 'Critical',
-      explanation: 'Message requests sensitive account verification via email link.',
-      icon: 'KeyRound'
-    },
-    {
-      id: 'f-4',
-      title: 'Urgency language',
-      severity: 'Medium',
-      explanation: 'Pressures recipient with immediate account suspension threats.',
-      icon: 'Clock'
-    }
-  ];
+  // Backend connection state
+  let isBackendLive = false;
+  let backendErrorMessage = null;
+  let scanResults = null;
+
+  // Local fallback findings catalog matching schema requirements
+  const localFallbackResults = {
+    scan_id: 'local-fallback-demo',
+    mode: 'demo',
+    status: 'completed',
+    threat_score: 8.7,
+    risk_level: 'HIGH',
+    summary: 'Demo analysis detected several suspicious indicators.',
+    findings: [
+      {
+        type: 'sender_impersonation',
+        severity: 'high',
+        title: 'Possible sender impersonation',
+        description: 'The sender information may require verification.'
+      },
+      {
+        type: 'suspicious_link',
+        severity: 'high',
+        title: 'Suspicious link detected',
+        description: 'A link requires verification before opening.'
+      },
+      {
+        type: 'credential_request',
+        severity: 'critical',
+        title: 'Credential request',
+        description: 'The message asks the recipient to verify a password.'
+      },
+      {
+        type: 'urgency',
+        severity: 'medium',
+        title: 'Urgency-based language',
+        description: 'The message creates pressure to act quickly.'
+      }
+    ],
+    attachments: [],
+    recommendation: 'Do not click links or open attachments until the sender is verified.'
+  };
 
   // Initialize Extension State
   function init() {
@@ -135,7 +148,6 @@
 
   // Detect Gmail Email View & Extract Details Safely
   function findGmailEmailView() {
-    // Selectors for open email container in Gmail
     const selectors = [
       '[role="main"] .h7',
       '[role="main"] .gE',
@@ -154,11 +166,14 @@
     return null;
   }
 
-  // Safely extract email details without risking crashes or throwing errors
+  // Safely extract email details (sender, subject, body snippet, links, attachment names)
   function extractEmailContext(emailContainer) {
     try {
       let sender = '';
       let subject = '';
+      let bodyText = '';
+      let links = [];
+      let attachments = [];
       let attachmentCount = 0;
 
       // Extract Sender safely
@@ -184,17 +199,41 @@
         subject = subjectEl.textContent.trim();
       }
 
-      // Detect attachments count safely
+      // Extract Body Text Snippet & Links safely (max 1000 chars for body)
+      const bodyEl = document.querySelector('.a3s') || document.querySelector('.ii.gt') || document.querySelector('[role="main"] .a3s');
+      if (bodyEl) {
+        bodyText = (bodyEl.textContent || '').trim().substring(0, 1000);
+
+        const anchorEls = bodyEl.querySelectorAll('a[href]');
+        anchorEls.forEach((a) => {
+          const href = a.getAttribute('href');
+          if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+            if (!links.includes(href) && links.length < 10) {
+              links.push(href);
+            }
+          }
+        });
+      }
+
+      // Detect Attachment Metadata safely
       const attachmentEls = document.querySelectorAll('.aQy, div[aria-label*="Attachment"], .aZo, [aria-label*="attachment"]');
       attachmentCount = attachmentEls ? attachmentEls.length : 0;
+      attachmentEls.forEach((attEl) => {
+        const attName = (attEl.textContent || attEl.getAttribute('aria-label') || '').trim();
+        if (attName && !attachments.some(a => a.name === attName) && attachments.length < 10) {
+          attachments.push({ name: attName, file_type: 'file', size_bytes: null });
+        }
+      });
 
-      // Fallback check if sender or subject missing
       const isReliable = Boolean(sender || subject);
 
       return {
         isReliable,
         sender: sender || 'Sender email unavailable',
         subject: subject || 'Subject unavailable',
+        body: bodyText,
+        links,
+        attachments,
         attachmentCount,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
@@ -204,6 +243,9 @@
         isReliable: false,
         sender: 'Email details unavailable',
         subject: 'Email details unavailable',
+        body: '',
+        links: [],
+        attachments: [],
         attachmentCount: 0,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
@@ -216,7 +258,6 @@
 
     const emailView = findGmailEmailView();
     if (!emailView) {
-      // User is in inbox or navigation list, clean up panel
       if (currentEmailKey !== null) {
         debugLog('Left email view - removing panel');
         currentEmailKey = null;
@@ -225,20 +266,17 @@
       return;
     }
 
-    // Determine unique email key to trigger fresh scan on new email view
     const newEmailKey = getEmailUniqueKey(emailView);
     const existingPanel = document.getElementById(PANEL_ID);
 
     if (existingPanel && currentEmailKey === newEmailKey) {
-      // Panel already injected for this opened email view
       return;
     }
 
     currentEmailKey = newEmailKey;
     debugLog('Gmail email view detected:', currentEmailKey);
 
-    // Start simulation scan for this email
-    startScanSimulation(emailView);
+    startScanSequence(emailView);
   }
 
   function getEmailUniqueKey(emailView) {
@@ -249,37 +287,92 @@
     return emailView.id || emailView.className || 'default-email';
   }
 
-  // Trigger scan animation step sequence
-  function startScanSimulation(emailView) {
+  // Fetch scan response from local FastAPI backend with timeout
+  async function fetchBackendScan(emailContext) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4 sec timeout
+
+    const payload = {
+      sender: emailContext.sender !== 'Sender email unavailable' ? emailContext.sender : null,
+      subject: emailContext.subject !== 'Subject unavailable' ? emailContext.subject : null,
+      body: emailContext.body || null,
+      links: emailContext.links || [],
+      attachments: emailContext.attachments || []
+    };
+
+    try {
+      const response = await fetch(BACKEND_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data || typeof data.threat_score !== 'number' || !Array.isArray(data.findings)) {
+        throw new Error('Invalid backend response payload');
+      }
+
+      return { success: true, data };
+    } catch (err) {
+      clearTimeout(timeoutId);
+      debugLog('Backend fetch error:', err);
+      return {
+        success: false,
+        error: 'Backend unavailable — showing demo fallback.'
+      };
+    }
+  }
+
+  // Execute scan sequence with backend query and progress loading state
+  async function startScanSequence(emailView) {
     if (scanTimer) clearInterval(scanTimer);
     isScanning = true;
-    scanProgress = 10;
-    scanStep = 'Checking sender domain & authentication signatures...';
+    scanProgress = 15;
+    scanStep = 'Checking sender & connecting to FastAPI backend...';
     reviewStatus = 'pending';
 
     renderOrUpdatePanel(emailView);
 
-    const steps = [
-      { progress: 40, step: 'Scanning email body text & urgency signals...' },
-      { progress: 75, step: 'Checking links and attachment safety...' },
-      { progress: 100, step: 'Analysis complete. Phishing indicators mapped.' }
-    ];
-
-    let stepIndex = 0;
-    scanTimer = setInterval(() => {
-      if (stepIndex < steps.length) {
-        scanProgress = steps[stepIndex].progress;
-        scanStep = steps[stepIndex].step;
-        stepIndex++;
-        renderOrUpdatePanel(emailView);
-      } else {
-        clearInterval(scanTimer);
-        scanTimer = null;
-        isScanning = false;
-        debugLog('Scan completed');
+    // Progress bar animation while requesting backend
+    const progressInterval = setInterval(() => {
+      if (scanProgress < 85) {
+        scanProgress += 15;
+        if (scanProgress === 45) {
+          scanStep = 'Analyzing email body & links against threat models...';
+        } else if (scanProgress === 75) {
+          scanStep = 'Evaluating security findings & recommendation...';
+        }
         renderOrUpdatePanel(emailView);
       }
-    }, 450);
+    }, 150);
+
+    const emailContext = extractEmailContext(emailView);
+    const result = await fetchBackendScan(emailContext);
+
+    clearInterval(progressInterval);
+    scanProgress = 100;
+
+    if (result.success) {
+      isBackendLive = true;
+      backendErrorMessage = null;
+      scanResults = result.data;
+      debugLog('Backend scan successful:', scanResults);
+    } else {
+      isBackendLive = false;
+      backendErrorMessage = result.error;
+      scanResults = localFallbackResults;
+      debugLog('Backend fetch failed - utilizing fallback:', backendErrorMessage);
+    }
+
+    isScanning = false;
+    renderOrUpdatePanel(emailView);
   }
 
   // Remove existing panel safely
@@ -293,10 +386,7 @@
 
   // Determine optimal DOM placement or fallback positioning
   function injectPanelIntoDOM(panelEl, emailView) {
-    // Attempt preferred placement near opened email, avoiding compose / left nav
     let targetContainer = null;
-    
-    // Look for Gmail toolbar or message header container
     const headerContainer = emailView.querySelector('.ha') || emailView.querySelector('.gE') || emailView;
     if (headerContainer && headerContainer.parentNode) {
       targetContainer = headerContainer;
@@ -311,7 +401,6 @@
       }
       debugLog('Panel injected inline near opened email container');
     } else {
-      // Fallback to fixed overlay position avoiding left nav and compose button
       panelEl.className = 'sentinel-panel sentinel-overlay-panel';
       document.body.appendChild(panelEl);
       debugLog('Panel injected using fixed overlay fallback position');
@@ -336,11 +425,12 @@
       panelEl.setAttribute('aria-label', 'SentinelAI Security Analysis Overlay');
     }
 
-    // Risk level calculations (Simulated High Risk Demo)
-    const riskScore = '8.7';
-    const riskLevelText = 'High Risk';
-    const riskConfidence = 'Phishing Confidence: 94%';
-    const riskRecommendation = 'Recommended: Do not click links or open attachments until verified.';
+    // Current active findings and scan metrics
+    const currentResults = scanResults || localFallbackResults;
+    const riskScore = typeof currentResults.threat_score === 'number' ? currentResults.threat_score.toFixed(1) : '8.7';
+    const riskLevelText = currentResults.risk_level || 'HIGH';
+    const riskRecommendation = currentResults.recommendation || 'Recommended: Do not click links or open attachments until verified.';
+    const findingsList = currentResults.findings || [];
 
     // HTML Structure
     panelEl.innerHTML = `
@@ -364,7 +454,16 @@
           </div>
 
           <div class="sentinel-header-right">
-            <span class="sentinel-badge-demo" title="Demo analysis simulated locally">Demo analysis</span>
+            ${isBackendLive ? `
+              <span class="sentinel-badge-mode backend" title="Connected to FastAPI backend at http://127.0.0.1:8000">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+                Backend Demo
+              </span>
+            ` : `
+              <span class="sentinel-badge-mode fallback" title="Backend unreachable — using local fallback">
+                Local Fallback
+              </span>
+            `}
             <button type="button" id="sentinel-toggle-collapse" class="sentinel-icon-btn" aria-label="${isCollapsed ? 'Expand panel' : 'Collapse panel'}" tabIndex="0">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 ${isCollapsed ? '<path d="m6 9 6 6 6-6"/>' : '<path d="m18 15-6-6-6 6"/>'}
@@ -415,11 +514,18 @@
             ` : `
               <!-- Analysis Completed State -->
               <div class="sentinel-analysis-results">
+                ${!isBackendLive && backendErrorMessage ? `
+                  <div class="sentinel-fallback-notice">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span>${escapeHtml(backendErrorMessage)}</span>
+                  </div>
+                ` : ''}
+
                 <!-- Status Banner -->
                 <div class="sentinel-status-banner">
                   <div class="sentinel-status-banner-left">
                     <svg class="sentinel-check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    <span>Analysis Complete</span>
+                    <span>${isBackendLive ? 'Analysis Complete' : 'Demo Fallback Complete'}</span>
                   </div>
                   <span class="sentinel-review-tag ${reviewStatus}">${reviewStatus === 'reviewed' ? 'Reviewed ✓' : 'Action Required'}</span>
                 </div>
@@ -435,8 +541,8 @@
                       </div>
                     </div>
                     <div class="sentinel-score-badge-wrap">
-                      <span class="sentinel-risk-badge critical" tabIndex="0" aria-label="Risk Level: ${riskLevelText}">${riskLevelText}</span>
-                      <span class="sentinel-confidence">${riskConfidence}</span>
+                      <span class="sentinel-risk-badge ${riskLevelText.toLowerCase()}" tabIndex="0" aria-label="Risk Level: ${riskLevelText}">${riskLevelText}</span>
+                      <span class="sentinel-confidence">Phishing Confidence: 94%</span>
                     </div>
                   </div>
 
@@ -445,42 +551,44 @@
                     <div class="sentinel-risk-labels">
                       <span>0 Low</span>
                       <span>5 Med</span>
-                      <span class="sentinel-high-mark">${riskScore} High</span>
+                      <span class="sentinel-high-mark">${riskScore} ${riskLevelText}</span>
                       <span>10 Crit</span>
                     </div>
                     <div class="sentinel-bar-track">
-                      <div class="sentinel-bar-fill" style="width: 87%;"></div>
+                      <div class="sentinel-bar-fill" style="width: ${Math.min(100, Math.max(0, parseFloat(riskScore) * 10))}%;"></div>
                     </div>
                   </div>
 
                   <p class="sentinel-score-explanation">
-                    This email exhibits multiple high-confidence phishing signals, including sender domain mismatch and credential theft indicators.
+                    ${escapeHtml(currentResults.summary || 'Demo analysis detected suspicious indicators requiring review.')}
                   </p>
                 </div>
 
                 <!-- Findings List -->
                 <div class="sentinel-findings-section">
                   <div class="sentinel-findings-header">
-                    <span class="sentinel-findings-title">Security Findings (${simulatedFindings.length})</span>
+                    <span class="sentinel-findings-title">Security Findings (${findingsList.length})</span>
                     <span class="sentinel-findings-hint">Click row to toggle details</span>
                   </div>
 
                   <div class="sentinel-findings-list">
-                    ${simulatedFindings.map((finding) => {
-                      const isExpanded = expandedFindingId === finding.id;
+                    ${findingsList.map((finding, idx) => {
+                      const findingId = `f-${idx + 1}`;
+                      const isExpanded = expandedFindingId === findingId;
+                      const sevClass = (finding.severity || 'high').toLowerCase();
                       return `
-                        <div class="sentinel-finding-item ${isExpanded ? 'expanded' : ''}" data-finding-id="${finding.id}" tabIndex="0" role="button" aria-expanded="${isExpanded}" aria-label="Finding: ${finding.title}, Severity: ${finding.severity}">
+                        <div class="sentinel-finding-item ${isExpanded ? 'expanded' : ''}" data-finding-id="${findingId}" tabIndex="0" role="button" aria-expanded="${isExpanded}" aria-label="Finding: ${escapeHtml(finding.title)}, Severity: ${escapeHtml(finding.severity)}">
                           <div class="sentinel-finding-header">
                             <div class="sentinel-finding-left">
-                              <span class="sentinel-finding-icon ${finding.severity.toLowerCase()}">
-                                ${getFindingIconSvg(finding.icon)}
+                              <span class="sentinel-finding-icon ${sevClass}">
+                                ${getFindingIconSvg(finding.type || finding.icon)}
                               </span>
                               <div>
                                 <div class="sentinel-finding-title-row">
                                   <span class="sentinel-finding-title">${escapeHtml(finding.title)}</span>
-                                  <span class="sentinel-badge-sev ${finding.severity.toLowerCase()}">${finding.severity}</span>
+                                  <span class="sentinel-badge-sev ${sevClass}">${escapeHtml(finding.severity)}</span>
                                 </div>
-                                <p class="sentinel-finding-desc">${escapeHtml(finding.explanation)}</p>
+                                <p class="sentinel-finding-desc">${escapeHtml(finding.description || finding.explanation)}</p>
                               </div>
                             </div>
                             <span class="sentinel-arrow-icon" aria-hidden="true">
@@ -491,8 +599,8 @@
                           </div>
                           ${isExpanded ? `
                             <div class="sentinel-finding-details">
-                              <p><strong>Recommendation:</strong> Do not click external links. Verify domain authenticity with security administrators.</p>
-                              <span class="sentinel-signal-id">Signal ID: ${finding.id} • Contribution +1.8</span>
+                              <p><strong>Recommendation:</strong> ${escapeHtml(riskRecommendation)}</p>
+                              <span class="sentinel-signal-id">Signal Type: ${escapeHtml(finding.type)}</span>
                             </div>
                           ` : ''}
                         </div>
@@ -527,7 +635,7 @@
 
           <!-- Footer Disclaimer -->
           <div class="sentinel-panel-footer">
-            <p class="sentinel-footer-note">Demo mode: analysis is simulated locally. Email content is not uploaded or stored.</p>
+            <p class="sentinel-footer-note">Demo mode: analysis processed locally. Email credentials or full attachments are never uploaded or stored.</p>
           </div>
         ` : ''}
       </div>
@@ -568,7 +676,7 @@
     if (rescanBtn) {
       rescanBtn.addEventListener('click', () => {
         debugLog('Rescan requested by user');
-        startScanSimulation(emailView);
+        startScanSequence(emailView);
       });
       rescanBtn.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -613,15 +721,19 @@
     });
   }
 
-  // Icon Helper
-  function getFindingIconSvg(iconName) {
-    switch (iconName) {
+  // Icon Helper for Finding Types
+  function getFindingIconSvg(findingType) {
+    switch (findingType) {
+      case 'sender_impersonation':
       case 'UserX':
         return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/></svg>';
+      case 'suspicious_link':
       case 'Link2Off':
         return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 4 8"/><line x1="8" y1="12" x2="12" y2="12"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
+      case 'credential_request':
       case 'KeyRound':
         return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>';
+      case 'urgency':
       case 'Clock':
         return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
       default:
