@@ -13,6 +13,7 @@ class EmailScanRequest(BaseModel):
     subject: Optional[str] = None
     body: Optional[str] = None
     links: List[str] = Field(default_factory=list)
+    link_details: Optional[List[Dict[str, str]]] = None
     attachments: List[AttachmentInput] = Field(default_factory=list)
     reply_to: Optional[str] = None
 

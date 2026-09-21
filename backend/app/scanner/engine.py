@@ -42,7 +42,11 @@ def scan_email_engine(request: EmailScanRequest) -> EmailScanResponse:
     findings.extend(account_findings)
 
     # 5. URL Structural Analysis
-    url_findings = analyze_urls(request.links)
+    url_findings = analyze_urls(
+        links=request.links,
+        body=request.body,
+        link_details=getattr(request, 'link_details', None),
+    )
     findings.extend(url_findings)
 
     # 6. Attachment Metadata Analysis

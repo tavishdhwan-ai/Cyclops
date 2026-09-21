@@ -1,6 +1,6 @@
-# SentinelAI FastAPI Backend (Phase 4A.1)
+# SentinelAI FastAPI Backend (Phase 4A.2)
 
-FastAPI backend service for SentinelAI email security analysis. Phase 4A.1 refactors the scanner engine into a modular architecture and introduces advanced sender intelligence rules.
+FastAPI backend service for SentinelAI email security analysis. Phase 4A.2 introduces Advanced URL Intelligence (passive structural and protocol analysis).
 
 > **CLASSIFICATION**: **Rule-based threat analysis**
 > *This backend performs passive, rule-based heuristic threat analysis on email metadata and text supplied by the extension. It does NOT perform live malware analysis, dynamic sandbox execution, or real-time domain reputation queries.*
@@ -16,7 +16,7 @@ FastAPI backend service for SentinelAI email security analysis. Phase 4A.1 refac
 
 ---
 
-## Scanner Architecture (Phase 4A.1 Modular Design)
+## Scanner Architecture (Phase 4A.2 Design)
 
 The scanner engine is structured into modular analyzers under `app/scanner/`:
 
@@ -31,32 +31,53 @@ backend/
       engine.py       # Core scan orchestrator
       sender.py       # Advanced sender, domain, display-name & Reply-To intelligence
       content.py      # Urgency, credential request & account pressure rules
-      urls.py         # Passive URL structural and protocol analysis
+      urls.py         # Advanced passive URL intelligence & structural heuristics
       attachments.py # Passive attachment filename/type metadata analysis
       scoring.py      # Centralized continuous decimal threat score & risk level mapping
       brands.py       # Deterministic brand configuration and lookalike helper utilities
 ```
 
-### Module Responsibilities
-
-1. **`engine.py`**: Accepts `EmailScanRequest`, invokes individual analyzers, aggregates findings, calculates threat score/risk level, and constructs `EmailScanResponse`.
-2. **`sender.py`**: Executes deterministic sender analysis rules on display names, email domains, lookalike patterns, punycode, free-mail provider context, and Reply-To headers.
-3. **`content.py`**: Preserves Phase 3B text analysis rules for urgency language, credential/password requests, and artificial account/payment pressure.
-4. **`urls.py`**: Performs passive structural checks on links (IP hostnames, URL shorteners, excessive subdomains, punycode URLs, HTTP vs HTTPS).
-5. **`attachments.py`**: Inspects attachment metadata (double extensions, script/executable extensions, HTML attachments combined with sensitive text context, suspicious filename terms).
-6. **`scoring.py`**: Calculates continuous decimal threat scores (0.0 to 10.0) with category capping to prevent duplicate score inflation, and maps scores to exact risk boundaries.
-7. **`brands.py`**: Maintains deterministic configuration for common brands (Microsoft, Google, Apple, Amazon, PayPal, Meta, LinkedIn, Dropbox, Adobe, Netflix, DocuSign) and legitimate domain mappings.
-
 ---
 
-## Advanced Sender Intelligence Rules
+## Rule-based URL threat analysis (Phase 4A.2)
 
-- **Missing / Malformed Sender**: Flags missing or structurally invalid email addresses.
-- **Brand Impersonation**: Detects when display names reference a recognized brand while sending from an unrelated domain (e.g. `Microsoft Support <security@example.xyz>`).
-- **Lookalike Domain Heuristics**: Detects character substitution (0 -> o, 1 -> l/i, 5 -> s, 3 -> e) or hyphenated brand extensions mimicking known brands (e.g., `paypa1.com`, `micr0soft.example`, `amaz0n.example`).
-- **Punycode / Unicode Domains**: Flags `xn--` internationalized domains or unusual character sets.
-- **Free Email Domain Context**: Generates a warning when a business identity or corporate brand uses a generic free email provider (e.g., `Microsoft Billing Department <billingteam@gmail.com>`).
-- **Reply-To Analysis**: Compares `From` domain vs `Reply-To` domain and flags significant discrepancies.
+### Passive Safety Guarantee
+
+URL analysis in SentinelAI is **completely passive**:
+- Parses URLs locally using standard URL parsers.
+- **Never** visits or connects to any URL.
+- **Never** sends HTTP/HTTPS requests to destinations.
+- **Never** resolves hostnames through external reputation services or DNS queries.
+- **Never** crawls pages or follows HTTP redirects.
+- **Never** downloads content or executes scripts.
+
+### Implemented URL Heuristics
+
+1. **Unencrypted HTTP Protocol**: Detects `http://` URLs. Generates a medium-severity finding explaining that connection lacks transport encryption. HTTPS links do not trigger this.
+2. **Raw IP Address URLs**: Detects IPv4 and IPv6 hosts (e.g. `http://192.0.2.10/login` or `http://[2001:db8::1]/login`). Generates high-severity findings for bypassing domain registration.
+3. **Non-Standard Ports**: Identifies explicit ports other than 80/443 (e.g. `:8443`, `:8080`).
+4. **Userinfo / `@` URL Tricks**: Detects URLs with userinfo before hostname (`https://trusted.example@evil.example/login`). Correctly extracts destination host (`evil.example`).
+5. **Excessive Subdomains**: Identifies hostname structures with more than 3–4 subdomain levels.
+6. **Very Long URLs**: Identifies URLs exceeding length thresholds (>150 chars total or >64 char hostnames).
+7. **Heavy URL Encoding**: Flags excessive percent-encoding (%2F, %3A, %40, %2E) obscuring paths or parameters.
+8. **Suspicious Query Parameters**: Inspects parameter *names* only (e.g., `redirect`, `return`, `next`, `url`, `destination`). **Never** logs or exposes parameter values.
+9. **Credential / Login Path Signals**: Flags sensitive security/auth terms in path (`/login`, `/verify`, `/password`, `/account`).
+10. **URL Shorteners**: Matches hostnames against known shorteners (`bit.ly`, `tinyurl.com`, `t.co`, `ow.ly`, `is.gd`, `cutt.ly`, etc.).
+11. **Hostname / Domain Heuristics**: Detects structural anomalies like excessive hyphens (>=3).
+12. **Punycode / Internationalized Domains**: Flags `xn--` domain prefixes and non-ASCII character sets.
+13. **Visible Link Text vs Destination Mismatch**: Detects discrepancies when visible display text (e.g. `https://microsoft.com`) points to a different target domain (`https://example.xyz/login`).
+14. **Lookalike Domain Integration**: Integrates with centralized brand database to detect character substitution (`paypa1.com`, `micr0soft.com`).
+
+### Limitations of Structural URL Analysis
+
+- Structural heuristics flag structural patterns associated with phishing, but do not provide definitive malware detection or real-time domain reputation.
+- Legitimate tracking links or complex web app URLs may trigger long-URL or parameter findings; severity levels remain low/medium to prevent false positives.
+
+### Scoring & Deduplication
+
+- URL findings contribute severity weights: `critical` (+3.0), `high` (+2.5), `medium` (+1.5), `low` (+0.5).
+- The `urls` category contribution is capped at **4.0** maximum to prevent multiple findings on a single link from endlessly inflating the overall email score.
+- Identical findings across URLs are deduplicated to keep results clean and readable.
 
 ---
 
@@ -68,32 +89,7 @@ The risk level mapping strictly follows these exact boundaries:
 - **`0.0` – `2.49`**: **`LOW`** (Minimal or no security indicators)
 - **`2.5` – `4.99`**: **`MEDIUM`** (Moderate security warnings)
 - **`5.0` – `7.49`**: **`HIGH`** (High-risk phishing indicators requiring review)
-- **`7.5` – `10.0`**: **`CRITICAL`** (Severe security threats, e.g., credential theft or executable attachments)
-
-### Explainability
-
-Every score increase corresponds directly to an item in the returned `findings` array. Each finding provides an `id`, `category`, `title`, `severity`, `explanation`, `evidence`, and `score_contribution`.
-
----
-
-## Brand Heuristic Limitations
-
-- The brand domain mapping is **not** a comprehensive global domain reputation database.
-- It relies on a small, extensible, deterministic list of high-visibility brands to spot obvious display-name and domain mismatches.
-
----
-
-## Scope & Passive Analysis Safety Controls
-
-Phase 4A.1 operates strictly under passive metadata and text analysis.
-
-**Phase 4A.1 does NOT:**
-- Visit or send HTTP requests to URLs found in emails.
-- Download, extract, open, or execute email attachments.
-- Connect to external threat intelligence APIs or third-party networks.
-- Use LLMs or non-deterministic AI generation.
-- Collect passwords, session cookies, auth tokens, or OAuth credentials.
-- Inspect unrelated Gmail page content or bypass browser security controls.
+- **`7.5` – `10.0`**: **`CRITICAL`** (Severe security threats)
 
 ---
 
@@ -103,19 +99,15 @@ Phase 4A.1 operates strictly under passive metadata and text analysis.
    ```powershell
    cd C:\Users\Tavish\Desktop\cyclops\backend
    ```
-2. Activate virtual environment:
+2. Run tests:
    ```powershell
-   .\.venv\Scripts\Activate.ps1
+   python -m pytest tests/
    ```
-3. Run tests:
-   ```powershell
-   python -m pytest
-   ```
-4. Verify byte-compilation:
+3. Verify byte-compilation:
    ```powershell
    python -m compileall app
    ```
-5. Start backend server:
+4. Start backend server:
    ```powershell
    python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
    ```
