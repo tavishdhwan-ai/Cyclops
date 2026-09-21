@@ -1,4 +1,4 @@
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -14,6 +14,7 @@ class EmailScanRequest(BaseModel):
     body: Optional[str] = None
     links: List[str] = Field(default_factory=list)
     attachments: List[AttachmentInput] = Field(default_factory=list)
+    reply_to: Optional[str] = None
 
 
 class Finding(BaseModel):
@@ -21,6 +22,19 @@ class Finding(BaseModel):
     severity: Literal["low", "medium", "high", "critical"]
     title: str
     description: str
+    id: Optional[str] = None
+    category: Optional[str] = None
+    explanation: Optional[str] = None
+    evidence: Optional[Dict[str, Any]] = None
+    score_contribution: Optional[float] = None
+
+    def model_post_init(self, __context):
+        if not self.id:
+            self.id = self.type
+        if not self.explanation and self.description:
+            self.explanation = self.description
+        elif not self.description and self.explanation:
+            self.description = self.explanation
 
 
 class AttachmentResult(BaseModel):
@@ -50,3 +64,4 @@ class EmailScanResponse(BaseModel):
     findings: List[Finding] = Field(default_factory=list)
     attachments: List[AttachmentResult] = Field(default_factory=list)
     recommendation: str
+

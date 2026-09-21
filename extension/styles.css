@@ -170,7 +170,10 @@ body.sentinel-popup-body {
 
 .sentinel-slider {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background-color: var(--sentinel-border);
   transition: 0.2s;
   border-radius: 24px;
@@ -189,15 +192,15 @@ body.sentinel-popup-body {
   border-radius: 50%;
 }
 
-input:checked + .sentinel-slider {
+input:checked+.sentinel-slider {
   background-color: var(--sentinel-primary);
 }
 
-input:checked + .sentinel-slider:before {
+input:checked+.sentinel-slider:before {
   transform: translateX(20px);
 }
 
-.sentinel-switch input:focus-visible + .sentinel-slider {
+.sentinel-switch input:focus-visible+.sentinel-slider {
   outline: 2px solid var(--sentinel-primary);
   outline-offset: 2px;
 }
@@ -551,7 +554,9 @@ input:checked + .sentinel-slider:before {
 }
 
 @keyframes sentinel-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sentinel-loading-title {
@@ -688,7 +693,8 @@ input:checked + .sentinel-slider:before {
   letter-spacing: 0.03em;
 }
 
-.sentinel-risk-badge.critical, .sentinel-risk-badge.high {
+.sentinel-risk-badge.critical,
+.sentinel-risk-badge.high {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.4);
@@ -808,8 +814,14 @@ input:checked + .sentinel-slider:before {
   flex-shrink: 0;
 }
 
-.sentinel-finding-icon.high, .sentinel-finding-icon.critical { color: #ef4444; }
-.sentinel-finding-icon.medium { color: #f59e0b; }
+.sentinel-finding-icon.high,
+.sentinel-finding-icon.critical {
+  color: #ef4444;
+}
+
+.sentinel-finding-icon.medium {
+  color: #f59e0b;
+}
 
 .sentinel-finding-title-row {
   display: flex;
@@ -830,7 +842,8 @@ input:checked + .sentinel-slider:before {
   border-radius: 4px;
 }
 
-.sentinel-badge-sev.high, .sentinel-badge-sev.critical {
+.sentinel-badge-sev.high,
+.sentinel-badge-sev.critical {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
 }
@@ -958,7 +971,10 @@ input:checked + .sentinel-slider:before {
 
 /* Reduced Motion support */
 @media (prefers-reduced-motion: reduce) {
-  *, ::before, ::after {
+
+  *,
+  ::before,
+  ::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -1051,7 +1067,7 @@ input:checked + .sentinel-slider:before {
   background: var(--sentinel-text);
   border: 2px solid var(--sentinel-bg);
   border-radius: 50%;
-  box-shadow: 0 0 4px rgba(0,0,0,0.5);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
   transform: translateX(-50%);
   pointer-events: none;
   z-index: 2;
@@ -1082,10 +1098,26 @@ input:checked + .sentinel-slider:before {
   font-weight: 500;
 }
 
-.sentinel-scale-mark.pos-0 { left: 0%; transform: translateX(0%); text-align: left; }
-.sentinel-scale-mark.pos-25 { left: 25%; }
-.sentinel-scale-mark.pos-50 { left: 50%; }
-.sentinel-scale-mark.pos-75 { left: 75%; }
-.sentinel-scale-mark.pos-100 { left: 100%; transform: translateX(-100%); text-align: right; }
+.sentinel-scale-mark.pos-0 {
+  left: 0%;
+  transform: translateX(0%);
+  text-align: left;
+}
 
+.sentinel-scale-mark.pos-25 {
+  left: 25%;
+}
 
+.sentinel-scale-mark.pos-50 {
+  left: 50%;
+}
+
+.sentinel-scale-mark.pos-75 {
+  left: 75%;
+}
+
+.sentinel-scale-mark.pos-100 {
+  left: 100%;
+  transform: translateX(-100%);
+  text-align: right;
+}
