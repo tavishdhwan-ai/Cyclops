@@ -1,6 +1,6 @@
-# SentinelAI FastAPI Backend (Phase 4A.2)
+# SentinelAI FastAPI Backend (Phase 4A.3)
 
-FastAPI backend service for SentinelAI email security analysis. Phase 4A.2 introduces Advanced URL Intelligence (passive structural and protocol analysis).
+FastAPI backend service for SentinelAI email security analysis. Phase 4A.3 extends the scanner with Advanced Attachment Intelligence (passive, metadata-only attachment risk analysis).
 
 > **CLASSIFICATION**: **Rule-based threat analysis**
 > *This backend performs passive, rule-based heuristic threat analysis on email metadata and text supplied by the extension. It does NOT perform live malware analysis, dynamic sandbox execution, or real-time domain reputation queries.*
@@ -31,11 +31,53 @@ backend/
       engine.py       # Core scan orchestrator
       sender.py       # Advanced sender, domain, display-name & Reply-To intelligence
       content.py      # Urgency, credential request & account pressure rules
-      urls.py         # Advanced passive URL intelligence & structural heuristics
-      attachments.py # Passive attachment filename/type metadata analysis
+      urls.py         # Advanced passive URL intelligence & structural heuristics (Phase 4A.2)
+      attachments.py  # Advanced passive attachment metadata analysis (Phase 4A.3)
       scoring.py      # Centralized continuous decimal threat score & risk level mapping
       brands.py       # Deterministic brand configuration and lookalike helper utilities
 ```
+
+---
+
+## Rule-based Attachment threat analysis (Phase 4A.3)
+
+### Passive Safety Guarantee
+
+Attachment analysis in SentinelAI is **completely passive and metadata-only**:
+- Only inspects the filename, declared MIME/content-type, and file size already supplied by the extension.
+- **Never** reads, opens, executes, renders, or decompresses attachment contents.
+- **Never** extracts archives or inspects archive member files.
+- **Never** executes macros or documents.
+- **Never** uploads attachments to any external service.
+- **Never** uses antivirus engines or external reputation APIs.
+
+### Implemented Attachment Heuristics
+
+1. **Double / Multiple Extension**: Detects `invoice.pdf.exe`, `salary.xlsx.js`, `image.jpg.lnk` — benign decoy extension before dangerous final extension. HIGH severity.
+2. **Executable Attachment**: Flags `.exe`, `.scr`, `.com`, `.bat`, `.cmd`, `.pif`, `.cpl`, `.dll`. HIGH severity.
+3. **Script Attachment**: Flags `.ps1`, `.vbs`, `.js`, `.jse`, `.wsf`, `.wsh`, `.hta`, `.vbe`, `.py`, `.rb`, `.sh`. HIGH severity.
+4. **Shortcut Attachment**: Flags `.lnk`, `.url`, `.webloc`. HIGH severity.
+5. **Installer Package**: Flags `.msi`, `.msp`, `.mst`, `.cab`, `.appx`. HIGH severity.
+6. **Macro-Enabled Office Document**: Flags `.docm`, `.xlsm`, `.xltm`, `.pptm`, `.dotm`. HIGH severity.
+7. **Suspicious HTML Attachment**: HTML/HTM/MHTML files combined with sensitive email context (credential, login, account language). HIGH severity.
+8. **Archive / Container**: `.zip`, `.rar`, `.7z`, `.tar`, `.iso`, `.img`. LOW severity (elevated to MEDIUM when suspicious filename keywords present).
+9. **MIME / Extension Mismatch**: Detects when declared MIME type contradicts filename extension (e.g. `invoice.pdf` with `application/x-msdownload`). MEDIUM severity.
+10. **Social-Engineering Filename Keywords**: `invoice`, `payment`, `salary`, `password`, `verification`, `payroll`, etc. LOW severity. Only emitted when no stronger finding is already present.
+11. **Suspicious Filename Spacing**: Detects unusual whitespace around extensions (e.g. `payment.pdf .exe`). MEDIUM severity.
+12. **Unusually Long Filename**: Filenames >100 characters that could push the real extension off-screen. LOW severity.
+13. **Excessive Punctuation**: Filenames with ≥4 special characters in the base name. LOW severity.
+14. **Suspiciously Small Document**: Files declaring a document extension but containing <512 bytes. LOW severity.
+
+### Anti-Double-Counting Rules
+
+- **Double extension subsumes executable/script/shortcut findings**: a file with `double_extension` does not also emit `executable_attachment` or `script_attachment`.
+- **Strong findings suppress keyword signals**: `attachment_keyword` is not emitted when `double_extension`, `executable_attachment`, `macro_enabled_document`, etc. are already present.
+- **Per-category cap**: the `attachments` category contribution is capped at **4.0** in the overall email score calculation.
+
+### Limitations
+
+- MIME types are not validated by inspecting file bytes — only the declared `content_type` field is used.
+- Archive contents are never inspected; a `.zip` containing a `.exe` will not be detected at the inner level.
 
 ---
 
