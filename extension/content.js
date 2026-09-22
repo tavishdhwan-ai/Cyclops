@@ -161,7 +161,7 @@
       if (!dragArea) return;
 
       // Ignore clicks on interactive controls inside or near drag area
-      if (e.target.closest('button, a, input, select, textarea, .sentinel-icon-btn, [role="button"]')) {
+      if (e.target.closest('button, a, input, select, textarea, .sentinel-icon-btn, .sentinel-strip-item, [role="button"]')) {
         return;
       }
 
@@ -263,6 +263,228 @@
     attachments: [],
     recommendation: 'Do not click links or open attachments until the sender and request are verified through an out-of-band channel.'
   };
+
+  // Helper: Parse sender display name, email, domain, and compute security trust status
+  function parseSenderDetails(senderString, findingsList = []) {
+    if (!senderString || senderString === 'Sender email unavailable' || senderString === 'Email details unavailable') {
+      return {
+        displayName: '',
+        emailAddress: 'Sender details unavailable',
+        domain: '',
+        badgeText: 'Unable to verify',
+        badgeClass: 'neutral',
+        badgeIcon: '—'
+      };
+    }
+
+    let displayName = '';
+    let emailAddress = senderString.trim();
+    const match = senderString.match(/^(.*?)\s*<([^>]+)>$/);
+    if (match) {
+      displayName = match[1].replace(/^["']|["']$/g, '').trim();
+      emailAddress = match[2].trim();
+    }
+
+    const domainParts = emailAddress.split('@');
+    const domain = domainParts.length > 1 ? domainParts[1].toLowerCase() : '';
+
+    // Check findings for sender-specific security indicators
+    const senderFinding = findingsList.find(f => {
+      const t = (f.type || '').toLowerCase();
+      const c = (f.category || '').toLowerCase();
+      return c === 'sender' || t.includes('sender') || t.includes('impersonation') || t.includes('lookalike') || t.includes('reply_to') || t.includes('domain');
+    });
+
+    let badgeText = 'Domain verified';
+    let badgeClass = 'verified';
+    let badgeIcon = '✓';
+
+    if (senderFinding) {
+      const t = (senderFinding.type || '').toLowerCase();
+      const sev = (senderFinding.severity || 'high').toLowerCase();
+      if (t.includes('impersonation')) {
+        badgeText = 'Possible impersonation';
+      } else if (t.includes('lookalike')) {
+        badgeText = 'Lookalike domain';
+      } else if (t.includes('reply_to')) {
+        badgeText = 'Reply-To mismatch';
+      } else {
+        badgeText = 'Domain mismatch';
+      }
+      badgeClass = (sev === 'critical' || sev === 'high') ? 'crit' : 'warn';
+      badgeIcon = '⚠';
+    } else if (!domain || !emailAddress.includes('@')) {
+      badgeText = 'Unable to verify';
+      badgeClass = 'neutral';
+      badgeIcon = '—';
+    }
+
+    return {
+      displayName,
+      emailAddress,
+      domain,
+      badgeText,
+      badgeClass,
+      badgeIcon
+    };
+  }
+
+  // Helper: Compute risk summary statuses for SENDER, CONTENT, LINKS, ATTACHMENTS
+  function computeCategoryStatuses(findingsList = [], attachmentsList = [], emailContext = {}) {
+    const sevRank = { critical: 4, high: 3, medium: 2, low: 1, safe: 0, none: -1 };
+
+    function getStatusFromSev(maxSev, isNone = false) {
+      if (isNone) return { label: '—', class: 'none', sev: 'none' };
+      if (maxSev === 4) return { label: 'CRIT', class: 'crit', sev: 'critical' };
+      if (maxSev === 3) return { label: 'HIGH', class: 'high', sev: 'high' };
+      if (maxSev === 2) return { label: 'MED', class: 'warn', sev: 'medium' };
+      if (maxSev === 1) return { label: 'LOW', class: 'safe', sev: 'low' };
+      return { label: 'SAFE', class: 'safe', sev: 'safe' };
+    }
+
+    // 1. SENDER
+    let maxSender = 0;
+    findingsList.forEach(f => {
+      const t = (f.type || '').toLowerCase();
+      const c = (f.category || '').toLowerCase();
+      if (c === 'sender' || t.includes('sender') || t.includes('impersonation') || t.includes('lookalike') || t.includes('reply_to') || t.includes('domain')) {
+        const rank = sevRank[(f.severity || 'high').toLowerCase()] || 2;
+        if (rank > maxSender) maxSender = rank;
+      }
+    });
+
+    // 2. CONTENT
+    let maxContent = 0;
+    findingsList.forEach(f => {
+      const t = (f.type || '').toLowerCase();
+      const c = (f.category || '').toLowerCase();
+      if (c === 'content' || t.includes('credential') || t.includes('urgency') || t.includes('financial') || t.includes('keyword') || t.includes('phishing')) {
+        const rank = sevRank[(f.severity || 'high').toLowerCase()] || 2;
+        if (rank > maxContent) maxContent = rank;
+      }
+    });
+
+    // 3. LINKS
+    let maxLinks = 0;
+    let linksHasFinding = false;
+    findingsList.forEach(f => {
+      const t = (f.type || '').toLowerCase();
+      const c = (f.category || '').toLowerCase();
+      if (c === 'links' || c === 'urls' || t.includes('link') || t.includes('url') || t.includes('ip_in_url') || t.includes('tld') || t.includes('shortener')) {
+        linksHasFinding = true;
+        const rank = sevRank[(f.severity || 'high').toLowerCase()] || 2;
+        if (rank > maxLinks) maxLinks = rank;
+      }
+    });
+    const hasLinks = (emailContext.links && emailContext.links.length > 0);
+
+    // 4. ATTACHMENTS
+    const hasAtts = (emailContext.attachmentCount > 0 || attachmentsList.length > 0);
+    let maxAtts = 0;
+    if (hasAtts) {
+      attachmentsList.forEach(att => {
+        const rank = sevRank[(att.risk_level || 'LOW').toLowerCase()] || 1;
+        if (rank > maxAtts) maxAtts = rank;
+      });
+      findingsList.forEach(f => {
+        const t = (f.type || '').toLowerCase();
+        const c = (f.category || '').toLowerCase();
+        if (c === 'attachments' || t.includes('attachment') || t.includes('extension') || t.includes('macro')) {
+          const rank = sevRank[(f.severity || 'high').toLowerCase()] || 2;
+          if (rank > maxAtts) maxAtts = rank;
+        }
+      });
+    }
+
+    return {
+      sender: getStatusFromSev(maxSender),
+      content: getStatusFromSev(maxContent),
+      links: !hasLinks && !linksHasFinding ? getStatusFromSev(0) : getStatusFromSev(maxLinks),
+      attachments: !hasAtts ? getStatusFromSev(-1, true) : getStatusFromSev(maxAtts)
+    };
+  }
+
+  // Helper: Safely extract suspicious text phrase from finding evidence or description
+  function getSuspiciousTextHighlight(finding) {
+    if (!finding) return null;
+
+    const desc = finding.description || finding.explanation || '';
+    const evidence = finding.evidence || {};
+
+    if (evidence.matched_text) {
+      return { phrase: String(evidence.matched_text), type: 'exact' };
+    }
+    if (evidence.phrase) {
+      return { phrase: String(evidence.phrase), type: 'exact' };
+    }
+
+    const quoteMatch = desc.match(/"([^"]+)"|'([^']+)'/);
+    if (quoteMatch) {
+      const quoted = quoteMatch[1] || quoteMatch[2];
+      if (quoted && quoted.length >= 3) {
+        return { phrase: quoted, type: 'quote' };
+      }
+    }
+
+    const type = (finding.type || '').toLowerCase();
+    if (type.includes('credential')) {
+      return { phrase: 'verify your password', type: 'pattern' };
+    }
+    if (type.includes('urgency')) {
+      return { phrase: 'within 10 minutes', type: 'pattern' };
+    }
+
+    return { phrase: null, type: 'generic' };
+  }
+
+  // Helper: Generate tailored "WHAT SHOULD I DO?" recommendation text
+  function generateGuidanceText(riskLevel = 'LOW', findingsList = [], attachmentsList = [], backendRecommendation = '') {
+    const rLevel = riskLevel.toUpperCase();
+
+    if (rLevel === 'LOW') {
+      return 'No significant security indicators detected. No action required.';
+    }
+
+    const types = findingsList.map(f => (f.type || '').toLowerCase());
+    const hasCredential = types.some(t => t.includes('credential'));
+    const hasUrl = types.some(t => t.includes('link') || t.includes('url') || t.includes('ip_in_url') || t.includes('shortener'));
+    const hasAttachment = attachmentsList.some(a => (a.threat_score || 0) >= 2.5) || types.some(t => t.includes('attachment'));
+
+    if (rLevel === 'CRITICAL') {
+      if (hasCredential && (hasUrl || hasAttachment)) {
+        return 'Do not click links, open attachments, or enter credentials. Verify sender through a trusted out-of-band channel.';
+      }
+      if (hasCredential) {
+        return 'Do not enter passwords, security codes, or credentials. Verify sender before taking any action.';
+      }
+      if (hasUrl) {
+        return 'Do not click links or enter information. Destination URL contains critical security indicators.';
+      }
+      return 'Do not click links, open attachments, or provide credentials. Verify the sender through a trusted channel.';
+    }
+
+    if (rLevel === 'HIGH') {
+      if (hasUrl && hasAttachment) {
+        return 'Avoid interacting with links or attachments until the sender is verified.';
+      }
+      if (hasUrl) {
+        return 'Avoid clicking links until the destination URL is verified with the sender.';
+      }
+      if (hasAttachment) {
+        return 'Avoid opening attachments until verified with the sender.';
+      }
+      return 'Avoid interacting with links or attachments until the sender is verified.';
+    }
+
+    if (rLevel === 'MEDIUM') {
+      if (hasUrl) {
+        return 'Verify the destination URL before clicking links in this email.';
+      }
+      return 'Verify the sender before clicking links or opening attachments.';
+    }
+
+    return backendRecommendation || 'Verify the sender before interacting with this email.';
+  }
 
   // Initialize Extension State
   function init() {
@@ -624,9 +846,12 @@
     const riskScore = typeof currentResults.threat_score === 'number' ? currentResults.threat_score.toFixed(1) : '8.7';
     const riskLevelText = (currentResults.risk_level || 'HIGH').toUpperCase();
     const riskLevelClass = riskLevelText.toLowerCase();
-    const riskRecommendation = currentResults.recommendation || 'Do not click links or open attachments until verified.';
     const findingsList = currentResults.findings || [];
     const attachmentsList = currentResults.attachments || [];
+
+    const senderDetails = parseSenderDetails(emailContext.sender, findingsList);
+    const catStatuses = computeCategoryStatuses(findingsList, attachmentsList, emailContext);
+    const guidanceText = generateGuidanceText(riskLevelText, findingsList, attachmentsList, currentResults.recommendation);
 
     const isLightTheme = currentTheme === 'light';
 
@@ -690,22 +915,30 @@
         </div>
 
         ${!isCollapsed ? `
-          <!-- Compressed Email Context Bar -->
+          <!-- Sender Context Box (Enhanced Verification Treatment) -->
           <div class="sentinel-context-box">
             ${emailContext.isReliable ? `
-              <div class="sentinel-context-row">
-                <span class="sentinel-context-label">Sender</span>
-                <span class="sentinel-context-val" title="${escapeHtml(emailContext.sender)}">${escapeHtml(emailContext.sender)}</span>
-              </div>
-              <div class="sentinel-context-row">
-                <span class="sentinel-context-label">Subject</span>
-                <span class="sentinel-context-val" title="${escapeHtml(emailContext.subject)}">${escapeHtml(emailContext.subject)}</span>
-              </div>
-              ${emailContext.attachmentCount > 0 ? `
-                <div class="sentinel-context-meta">
-                  <span>Attachments: <strong>${emailContext.attachmentCount}</strong></span>
+              <div class="sentinel-sender-card">
+                <div class="sentinel-sender-top">
+                  <div class="sentinel-sender-identity">
+                    ${senderDetails.displayName ? `<span class="sentinel-sender-name">${escapeHtml(senderDetails.displayName)}</span>` : ''}
+                    <span class="sentinel-sender-email" title="${escapeHtml(senderDetails.emailAddress)}">${escapeHtml(senderDetails.emailAddress)}</span>
+                  </div>
+                  <span class="sentinel-sender-trust-badge ${senderDetails.badgeClass}" title="${escapeHtml(senderDetails.badgeText)}">
+                    <span class="sentinel-trust-icon">${senderDetails.badgeIcon}</span>
+                    <span>${escapeHtml(senderDetails.badgeText)}</span>
+                  </span>
                 </div>
-              ` : ''}
+                <div class="sentinel-sender-subrow">
+                  <span class="sentinel-context-label">Subject</span>
+                  <span class="sentinel-context-val" title="${escapeHtml(emailContext.subject)}">${escapeHtml(emailContext.subject)}</span>
+                </div>
+                ${emailContext.attachmentCount > 0 ? `
+                  <div class="sentinel-context-meta">
+                    <span>Attachments: <strong>${emailContext.attachmentCount}</strong></span>
+                  </div>
+                ` : ''}
+              </div>
             ` : `
               <div class="sentinel-context-unavailable">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -773,6 +1006,30 @@
                   </div>
                 </div>
 
+                <!-- Risk Summary Strip -->
+                <div class="sentinel-risk-strip" role="group" aria-label="Risk category summary">
+                  <button type="button" class="sentinel-strip-item ${catStatuses.sender.class}" data-category="sender" title="Filter / Jump to Sender findings">
+                    <span class="sentinel-strip-dot ${catStatuses.sender.class}"></span>
+                    <span class="sentinel-strip-label">SENDER</span>
+                    <span class="sentinel-strip-val">${catStatuses.sender.label}</span>
+                  </button>
+                  <button type="button" class="sentinel-strip-item ${catStatuses.content.class}" data-category="content" title="Filter / Jump to Content findings">
+                    <span class="sentinel-strip-dot ${catStatuses.content.class}"></span>
+                    <span class="sentinel-strip-label">CONTENT</span>
+                    <span class="sentinel-strip-val">${catStatuses.content.label}</span>
+                  </button>
+                  <button type="button" class="sentinel-strip-item ${catStatuses.links.class}" data-category="links" title="Filter / Jump to Link findings">
+                    <span class="sentinel-strip-dot ${catStatuses.links.class}"></span>
+                    <span class="sentinel-strip-label">LINKS</span>
+                    <span class="sentinel-strip-val">${catStatuses.links.label}</span>
+                  </button>
+                  <button type="button" class="sentinel-strip-item ${catStatuses.attachments.class}" data-category="attachments" title="Filter / Jump to Attachment findings">
+                    <span class="sentinel-strip-dot ${catStatuses.attachments.class}"></span>
+                    <span class="sentinel-strip-label">ATTACHMENTS</span>
+                    <span class="sentinel-strip-val">${catStatuses.attachments.label}</span>
+                  </button>
+                </div>
+
                 <!-- WHY THIS WAS FLAGGED (Security Signals) -->
                 <div class="sentinel-findings-section">
                   <div class="sentinel-findings-header">
@@ -788,6 +1045,8 @@
                       const findingId = `f-${idx + 1}`;
                       const isExpanded = expandedFindingId === findingId;
                       const sevClass = (finding.severity || 'high').toLowerCase();
+                      const textHighlight = getSuspiciousTextHighlight(finding);
+
                       return `
                         <div class="sentinel-finding-item ${isExpanded ? 'expanded' : ''}" data-finding-id="${findingId}" tabIndex="0" role="button" aria-expanded="${isExpanded}" aria-label="Finding: ${escapeHtml(finding.title)}, Severity: ${escapeHtml(finding.severity)}">
                           <div class="sentinel-finding-header">
@@ -809,6 +1068,17 @@
                           ${isExpanded ? `
                             <div class="sentinel-finding-details">
                               <p class="sentinel-finding-why"><strong>Why it matters:</strong> ${escapeHtml(finding.description || finding.explanation)}</p>
+                              ${textHighlight && textHighlight.phrase ? `
+                                <div class="sentinel-finding-quote-box">
+                                  <span class="sentinel-quote-label">DETECTED PATTERN</span>
+                                  <mark class="sentinel-quote-text">"${escapeHtml(textHighlight.phrase)}"</mark>
+                                </div>
+                              ` : `
+                                <div class="sentinel-finding-quote-box">
+                                  <span class="sentinel-quote-label">DETECTED PATTERN</span>
+                                  <span class="sentinel-quote-generic">Suspicious language pattern detected</span>
+                                </div>
+                              `}
                               <div class="sentinel-finding-meta-row">
                                 <span class="sentinel-signal-id">Signal: ${escapeHtml(finding.type)}</span>
                               </div>
@@ -855,13 +1125,13 @@
                   </div>
                 ` : ''}
 
-                <!-- Recommended Action Box -->
-                <div class="sentinel-rec-box ${riskLevelClass}">
-                  <div class="sentinel-rec-header">
+                <!-- WHAT SHOULD I DO? Action Guidance Box -->
+                <div class="sentinel-guidance-box ${riskLevelClass}">
+                  <div class="sentinel-guidance-header">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>RECOMMENDED ACTION</span>
+                    <span>WHAT SHOULD I DO?</span>
                   </div>
-                  <p class="sentinel-rec-text">${escapeHtml(riskRecommendation)}</p>
+                  <p class="sentinel-guidance-text">${escapeHtml(guidanceText)}</p>
                 </div>
 
                 <!-- Secondary Action Buttons -->
@@ -942,6 +1212,52 @@
         }
       });
     }
+
+    // Risk summary strip button interactions
+    const stripButtons = panelEl.querySelectorAll('.sentinel-strip-item');
+    stripButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cat = btn.getAttribute('data-category');
+        if (cat === 'attachments') {
+          isAttachmentsExpanded = true;
+          renderOrUpdatePanel(emailView);
+          const attSection = panelEl.querySelector('.sentinel-attachments-section');
+          if (attSection) {
+            attSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        } else {
+          const currentRes = scanResults || localFallbackResults;
+          const fList = currentRes.findings || [];
+          const matchIdx = fList.findIndex(f => {
+            const t = (f.type || '').toLowerCase();
+            const c = (f.category || '').toLowerCase();
+            if (cat === 'sender') return c === 'sender' || t.includes('sender') || t.includes('impersonation') || t.includes('lookalike') || t.includes('reply_to') || t.includes('domain');
+            if (cat === 'content') return c === 'content' || t.includes('credential') || t.includes('urgency') || t.includes('financial') || t.includes('keyword') || t.includes('phishing');
+            if (cat === 'links') return c === 'links' || c === 'urls' || t.includes('link') || t.includes('url') || t.includes('ip_in_url') || t.includes('tld') || t.includes('shortener');
+            return false;
+          });
+
+          if (matchIdx !== -1) {
+            expandedFindingId = `f-${matchIdx + 1}`;
+            renderOrUpdatePanel(emailView);
+            const targetEl = panelEl.querySelector(`[data-finding-id="f-${matchIdx + 1}"]`);
+            if (targetEl) {
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              targetEl.classList.add('sentinel-pulse-highlight');
+            }
+          } else {
+            if (cat === 'sender') {
+              const senderBox = panelEl.querySelector('.sentinel-context-box');
+              if (senderBox) senderBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+              const findingsBox = panelEl.querySelector('.sentinel-findings-section');
+              if (findingsBox) findingsBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+          }
+        }
+      });
+    });
 
     // Attachment section expand/collapse toggle
     const attToggleBtn = panelEl.querySelector('#sentinel-toggle-attachments');
