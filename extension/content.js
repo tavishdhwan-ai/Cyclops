@@ -22,6 +22,8 @@
   // Constants & State
   const PANEL_ID = 'sentinel-ai-panel';
   const BACKEND_URL = 'http://127.0.0.1:8000/scan-email';
+  const THEME_STORAGE_KEY = 'sentinelai-theme';
+  const POSITION_STORAGE_KEY = 'sentinelai-panel-position';
   
   let isProtectionEnabled = true;
   let isCollapsed = false;
@@ -34,6 +36,189 @@
   let currentEmailKey = null;
   let observer = null;
   let debounceTimeout = null;
+
+  // Theme & Drag state
+  let currentTheme = 'dark';
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let initialPanelX = 0;
+  let initialPanelY = 0;
+  let rafId = null;
+
+  // Theme Helpers
+  function getSavedTheme() {
+    try {
+      const saved = localStorage.getItem(THEME_STORAGE_KEY);
+      if (saved === 'light' || saved === 'dark') {
+        return saved;
+      }
+    } catch (e) {}
+    return 'dark';
+  }
+
+  function saveTheme(theme) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch (e) {}
+  }
+
+  function applyTheme(panelEl, theme) {
+    if (!panelEl) return;
+    if (theme === 'light') {
+      panelEl.classList.add('sentinel-theme-light');
+      panelEl.classList.remove('sentinel-theme-dark');
+    } else {
+      panelEl.classList.add('sentinel-theme-dark');
+      panelEl.classList.remove('sentinel-theme-light');
+    }
+  }
+
+  function updateThemeToggleButton(panelEl, theme) {
+    const themeBtn = panelEl.querySelector('#sentinel-toggle-theme');
+    if (!themeBtn) return;
+    const isLight = theme === 'light';
+    themeBtn.setAttribute('aria-label', isLight ? 'Switch to dark mode' : 'Switch to light mode');
+    themeBtn.setAttribute('title', isLight ? 'Switch to dark mode' : 'Switch to light mode');
+    themeBtn.innerHTML = isLight ? `
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg>
+    ` : `
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+    `;
+  }
+
+  // Position & Viewport Clamping Helpers
+  function getSavedPosition() {
+    try {
+      const saved = localStorage.getItem(POSITION_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed.x === 'number' && typeof parsed.y === 'number' && !isNaN(parsed.x) && !isNaN(parsed.y)) {
+          return { x: parsed.x, y: parsed.y };
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function savePosition(x, y) {
+    try {
+      localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify({ x: Math.round(x), y: Math.round(y) }));
+    } catch (e) {}
+  }
+
+  function clampPosition(x, y, panelWidth, panelHeight) {
+    const margin = 12;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const pWidth = panelWidth || 420;
+    const pHeight = panelHeight || 300;
+
+    const minX = margin;
+    const maxX = Math.max(margin, vw - pWidth - margin);
+    const minY = margin;
+    const maxY = Math.max(margin, vh - pHeight - margin);
+
+    const clampedX = Math.min(Math.max(x, minX), maxX);
+    const clampedY = Math.min(Math.max(y, minY), maxY);
+
+    return { x: clampedX, y: clampedY };
+  }
+
+  function applyPanelPosition(panelEl, pos) {
+    if (!panelEl) return;
+    const rect = panelEl.getBoundingClientRect();
+    const panelWidth = rect.width || 420;
+    const panelHeight = rect.height || 300;
+
+    let targetX, targetY;
+    if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+      targetX = pos.x;
+      targetY = pos.y;
+    } else {
+      targetX = Math.max(12, window.innerWidth - panelWidth - 24);
+      targetY = 80;
+    }
+
+    const clamped = clampPosition(targetX, targetY, panelWidth, panelHeight);
+    panelEl.style.left = `${clamped.x}px`;
+    panelEl.style.top = `${clamped.y}px`;
+    panelEl.style.right = 'auto';
+    panelEl.style.bottom = 'auto';
+  }
+
+  // Drag Engine using Pointer Events
+  function initDrag(panelEl) {
+    if (panelEl.__sentinel_drag_initialized) return;
+    panelEl.__sentinel_drag_initialized = true;
+
+    const onPointerDown = (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+
+      const dragArea = e.target.closest('.sentinel-draggable');
+      if (!dragArea) return;
+
+      // Ignore clicks on interactive controls inside or near drag area
+      if (e.target.closest('button, a, input, select, textarea, .sentinel-icon-btn, [role="button"]')) {
+        return;
+      }
+
+      e.preventDefault();
+
+      const rect = panelEl.getBoundingClientRect();
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      initialPanelX = rect.left;
+      initialPanelY = rect.top;
+
+      panelEl.classList.add('sentinel-dragging');
+
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
+    };
+
+    const onPointerMove = (e) => {
+      if (!isDragging) return;
+
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const deltaX = e.clientX - dragStartX;
+        const deltaY = e.clientY - dragStartY;
+
+        const newX = initialPanelX + deltaX;
+        const newY = initialPanelY + deltaY;
+
+        const rect = panelEl.getBoundingClientRect();
+        const clamped = clampPosition(newX, newY, rect.width, rect.height);
+
+        panelEl.style.left = `${clamped.x}px`;
+        panelEl.style.top = `${clamped.y}px`;
+        panelEl.style.right = 'auto';
+      });
+    };
+
+    const onPointerUp = () => {
+      if (!isDragging) return;
+      isDragging = false;
+      panelEl.classList.remove('sentinel-dragging');
+
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+
+      const rect = panelEl.getBoundingClientRect();
+      const clamped = clampPosition(rect.left, rect.top, rect.width, rect.height);
+      panelEl.style.left = `${clamped.x}px`;
+      panelEl.style.top = `${clamped.y}px`;
+      panelEl.style.right = 'auto';
+      savePosition(clamped.x, clamped.y);
+    };
+
+    panelEl.addEventListener('pointerdown', onPointerDown);
+  }
 
   // Backend connection state
   let isBackendLive = false;
@@ -82,6 +267,9 @@
   function init() {
     debugLog('Extension content script initialized.');
     
+    // Load theme setting
+    currentTheme = getSavedTheme();
+
     // Restore collapse state for current session
     try {
       const storedCollapse = sessionStorage.getItem('sentinel_panel_collapsed');
@@ -111,6 +299,23 @@
     } else {
       handleStateChange();
     }
+
+    // Window resize handler to keep panel clamped to viewport
+    let resizeTimeout = null;
+    window.addEventListener('resize', () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        const panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) {
+          const rect = panelEl.getBoundingClientRect();
+          const clamped = clampPosition(rect.left, rect.top, rect.width, rect.height);
+          panelEl.style.left = `${clamped.x}px`;
+          panelEl.style.top = `${clamped.y}px`;
+          panelEl.style.right = 'auto';
+          savePosition(clamped.x, clamped.y);
+        }
+      }, 100);
+    });
 
     // Setup SPA DOM Observer with debouncing
     setupMutationObserver();
@@ -386,25 +591,11 @@
   }
 
   // Determine optimal DOM placement or fallback positioning
-  function injectPanelIntoDOM(panelEl, emailView) {
-    let targetContainer = null;
-    const headerContainer = emailView.querySelector('.ha') || emailView.querySelector('.gE') || emailView;
-    if (headerContainer && headerContainer.parentNode) {
-      targetContainer = headerContainer;
-    }
-
-    if (targetContainer) {
-      panelEl.className = 'sentinel-panel sentinel-inline-panel';
-      if (targetContainer.nextSibling) {
-        targetContainer.parentNode.insertBefore(panelEl, targetContainer.nextSibling);
-      } else {
-        targetContainer.parentNode.appendChild(panelEl);
-      }
-      debugLog('Panel injected inline near opened email container');
-    } else {
-      panelEl.className = 'sentinel-panel sentinel-overlay-panel';
+  function injectPanelIntoDOM(panelEl) {
+    panelEl.className = 'sentinel-panel sentinel-overlay-panel';
+    if (!panelEl.parentNode) {
       document.body.appendChild(panelEl);
-      debugLog('Panel injected using fixed overlay fallback position');
+      debugLog('Panel injected as fixed floating overlay panel');
     }
   }
 
@@ -418,6 +609,7 @@
     const emailContext = extractEmailContext(emailView);
     let panelEl = document.getElementById(PANEL_ID);
     const isNew = !panelEl;
+    currentTheme = getSavedTheme();
 
     if (isNew) {
       panelEl = document.createElement('div');
@@ -433,24 +625,38 @@
     const riskRecommendation = currentResults.recommendation || 'Recommended: Do not click links or open attachments until verified.';
     const findingsList = currentResults.findings || [];
 
+    const isLightTheme = currentTheme === 'light';
+
     // HTML Structure
     panelEl.innerHTML = `
       <div class="sentinel-panel-inner ${isCollapsed ? 'sentinel-collapsed' : ''}">
         <!-- Header Strip -->
         <div class="sentinel-panel-header">
-          <div class="sentinel-header-left">
-            <div class="sentinel-header-logo" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                <path d="m9 12 2 2 4-4"/>
+          <div class="sentinel-header-drag-area sentinel-draggable" tabIndex="-1" title="Drag to move panel">
+            <div class="sentinel-drag-grip" aria-hidden="true" title="Drag handle">
+              <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                <circle cx="2" cy="2" r="1.2"/>
+                <circle cx="8" cy="2" r="1.2"/>
+                <circle cx="2" cy="7" r="1.2"/>
+                <circle cx="8" cy="7" r="1.2"/>
+                <circle cx="2" cy="12" r="1.2"/>
+                <circle cx="8" cy="12" r="1.2"/>
               </svg>
             </div>
-            <div>
-              <div class="sentinel-header-title-row">
-                <h2 class="sentinel-header-title">SentinelAI Threat Intelligence</h2>
-                <span class="sentinel-overlay-tag">Overlay</span>
+            <div class="sentinel-header-left">
+              <div class="sentinel-header-logo" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  <path d="m9 12 2 2 4-4"/>
+                </svg>
               </div>
-              <p class="sentinel-header-subtitle">Email Security Guard</p>
+              <div>
+                <div class="sentinel-header-title-row">
+                  <h2 class="sentinel-header-title">SentinelAI Threat Intelligence</h2>
+                  <span class="sentinel-overlay-tag">Overlay</span>
+                </div>
+                <p class="sentinel-header-subtitle">Email Security Guard</p>
+              </div>
             </div>
           </div>
 
@@ -465,6 +671,13 @@
                 Local Fallback
               </span>
             `}
+            <button type="button" id="sentinel-toggle-theme" class="sentinel-icon-btn" aria-label="${isLightTheme ? 'Switch to dark mode' : 'Switch to light mode'}" title="${isLightTheme ? 'Switch to dark mode' : 'Switch to light mode'}" tabIndex="0">
+              ${isLightTheme ? `
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></svg>
+              ` : `
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+              `}
+            </button>
             <button type="button" id="sentinel-toggle-collapse" class="sentinel-icon-btn" aria-label="${isCollapsed ? 'Expand panel' : 'Collapse panel'}" tabIndex="0">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 ${isCollapsed ? '<path d="m6 9 6 6 6-6"/>' : '<path d="m18 15-6-6-6 6"/>'}
@@ -532,7 +745,7 @@
                 </div>
 
                 <!-- Overall Threat Score Card -->
-                <div class="sentinel-score-card">
+                <div class="sentinel-score-card ${riskLevelText.toLowerCase()}">
                   <div class="sentinel-score-header">
                     <div>
                       <span class="sentinel-score-title">Overall Threat Score</span>
@@ -667,7 +880,12 @@
     `;
 
     if (isNew) {
-      injectPanelIntoDOM(panelEl, emailView);
+      injectPanelIntoDOM(panelEl);
+      applyTheme(panelEl, currentTheme);
+      applyPanelPosition(panelEl, getSavedPosition());
+      initDrag(panelEl);
+    } else {
+      applyTheme(panelEl, currentTheme);
     }
 
     // Attach Event Listeners
@@ -676,6 +894,27 @@
 
   // Attach Event Handlers to Interactive Elements
   function attachPanelEvents(panelEl, emailView) {
+    // Theme toggle
+    const themeBtn = panelEl.querySelector('#sentinel-toggle-theme');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const activeTheme = getSavedTheme();
+        const nextTheme = activeTheme === 'light' ? 'dark' : 'light';
+        saveTheme(nextTheme);
+        currentTheme = nextTheme;
+        applyTheme(panelEl, nextTheme);
+        updateThemeToggleButton(panelEl, nextTheme);
+      });
+
+      themeBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          themeBtn.click();
+        }
+      });
+    }
+
     // Collapse toggle
     const collapseBtn = panelEl.querySelector('#sentinel-toggle-collapse');
     if (collapseBtn) {
