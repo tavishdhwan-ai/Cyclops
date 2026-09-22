@@ -33,6 +33,7 @@
   let scanTimer = null;
   let reviewStatus = 'pending'; // 'pending' | 'reviewed'
   let expandedFindingId = null;
+  let isAttachmentsExpanded = false;
   let currentEmailKey = null;
   let observer = null;
   let debounceTimeout = null;
@@ -621,16 +622,18 @@
     // Current active findings and scan metrics
     const currentResults = scanResults || localFallbackResults;
     const riskScore = typeof currentResults.threat_score === 'number' ? currentResults.threat_score.toFixed(1) : '8.7';
-    const riskLevelText = currentResults.risk_level || 'HIGH';
-    const riskRecommendation = currentResults.recommendation || 'Recommended: Do not click links or open attachments until verified.';
+    const riskLevelText = (currentResults.risk_level || 'HIGH').toUpperCase();
+    const riskLevelClass = riskLevelText.toLowerCase();
+    const riskRecommendation = currentResults.recommendation || 'Do not click links or open attachments until verified.';
     const findingsList = currentResults.findings || [];
+    const attachmentsList = currentResults.attachments || [];
 
     const isLightTheme = currentTheme === 'light';
 
     // HTML Structure
     panelEl.innerHTML = `
       <div class="sentinel-panel-inner ${isCollapsed ? 'sentinel-collapsed' : ''}">
-        <!-- Header Strip -->
+        <!-- Compact Header Strip -->
         <div class="sentinel-panel-header">
           <div class="sentinel-header-drag-area sentinel-draggable" tabIndex="-1" title="Drag to move panel">
             <div class="sentinel-drag-grip" aria-hidden="true" title="Drag handle">
@@ -644,8 +647,8 @@
               </svg>
             </div>
             <div class="sentinel-header-left">
-              <div class="sentinel-header-logo" aria-hidden="true">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <div class="sentinel-header-logo ${riskLevelClass}" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                   <path d="m9 12 2 2 4-4"/>
                 </svg>
@@ -653,7 +656,6 @@
               <div>
                 <div class="sentinel-header-title-row">
                   <h2 class="sentinel-header-title">SentinelAI Threat Intelligence</h2>
-                  <span class="sentinel-overlay-tag">Overlay</span>
                 </div>
                 <p class="sentinel-header-subtitle">Email Security Guard</p>
               </div>
@@ -662,12 +664,13 @@
 
           <div class="sentinel-header-right">
             ${isBackendLive ? `
-              <span class="sentinel-badge-mode backend" title="Connected to FastAPI backend at http://127.0.0.1:8000">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+              <span class="sentinel-badge-mode backend" title="Connected to FastAPI backend">
+                <span class="sentinel-dot live"></span>
                 Backend Demo
               </span>
             ` : `
-              <span class="sentinel-badge-mode fallback" title="Backend unreachable — using local fallback">
+              <span class="sentinel-badge-mode fallback" title="Backend unreachable — showing local fallback">
+                <span class="sentinel-dot fallback"></span>
                 Local Fallback
               </span>
             `}
@@ -687,24 +690,25 @@
         </div>
 
         ${!isCollapsed ? `
-          <!-- Email Context Bar -->
+          <!-- Compressed Email Context Bar -->
           <div class="sentinel-context-box">
             ${emailContext.isReliable ? `
               <div class="sentinel-context-row">
-                <span class="sentinel-context-label">Sender:</span>
+                <span class="sentinel-context-label">Sender</span>
                 <span class="sentinel-context-val" title="${escapeHtml(emailContext.sender)}">${escapeHtml(emailContext.sender)}</span>
               </div>
               <div class="sentinel-context-row">
-                <span class="sentinel-context-label">Subject:</span>
+                <span class="sentinel-context-label">Subject</span>
                 <span class="sentinel-context-val" title="${escapeHtml(emailContext.subject)}">${escapeHtml(emailContext.subject)}</span>
               </div>
-              <div class="sentinel-context-meta">
-                <span>Attachments: <strong>${emailContext.attachmentCount}</strong></span>
-                <span>Scanned: <strong>${emailContext.timestamp}</strong></span>
-              </div>
+              ${emailContext.attachmentCount > 0 ? `
+                <div class="sentinel-context-meta">
+                  <span>Attachments: <strong>${emailContext.attachmentCount}</strong></span>
+                </div>
+              ` : ''}
             ` : `
               <div class="sentinel-context-unavailable">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 <span>Email details unavailable</span>
               </div>
             `}
@@ -713,7 +717,7 @@
           <!-- Body Content: Scanning State vs Complete State -->
           <div class="sentinel-panel-body">
             ${isScanning ? `
-              <!-- Scanning State -->
+              <!-- Scanning Progress State -->
               <div class="sentinel-scan-loading" role="status" aria-live="polite">
                 <div class="sentinel-spinner-wrap">
                   <div class="sentinel-spinner"></div>
@@ -730,38 +734,35 @@
               <div class="sentinel-analysis-results">
                 ${!isBackendLive && backendErrorMessage ? `
                   <div class="sentinel-fallback-notice">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                     <span>${escapeHtml(backendErrorMessage)}</span>
                   </div>
                 ` : ''}
 
-                <!-- Status Banner -->
-                <div class="sentinel-status-banner">
-                  <div class="sentinel-status-banner-left">
-                    <svg class="sentinel-check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    <span>${isBackendLive ? 'Analysis Complete' : 'Demo Fallback Complete'}</span>
-                  </div>
-                  <span class="sentinel-review-tag ${reviewStatus}">${reviewStatus === 'reviewed' ? 'Reviewed ✓' : 'Action Required'}</span>
-                </div>
-
-                <!-- Overall Threat Score Card -->
-                <div class="sentinel-score-card ${riskLevelText.toLowerCase()}">
-                  <div class="sentinel-score-header">
-                    <div>
-                      <span class="sentinel-score-title">Overall Threat Score</span>
-                      <div class="sentinel-score-val-row">
-                        <span class="sentinel-score-num">${riskScore}</span>
-                        <span class="sentinel-score-denom">/ 10</span>
-                      </div>
+                <!-- Primary Threat Verdict Section -->
+                <div class="sentinel-verdict-card ${riskLevelClass}">
+                  <div class="sentinel-verdict-header">
+                    <div class="sentinel-verdict-badge-wrap">
+                      <span class="sentinel-risk-badge ${riskLevelClass}" tabIndex="0" aria-label="Risk Level: ${riskLevelText}">
+                        ${riskLevelText}
+                      </span>
                     </div>
-                    <div class="sentinel-score-badge-wrap">
-                      <span class="sentinel-risk-badge ${riskLevelText.toLowerCase()}" tabIndex="0" aria-label="Risk Level: ${riskLevelText}">${riskLevelText}</span>
-                      <span class="sentinel-confidence">Phishing Confidence: 94%</span>
+                    <div class="sentinel-verdict-score">
+                      <span class="sentinel-score-num">${riskScore}</span>
+                      <span class="sentinel-score-denom">/ 10</span>
                     </div>
                   </div>
 
-                  <!-- Risk Bar with range boundaries -->
+                  <p class="sentinel-verdict-summary">
+                    ${escapeHtml(currentResults.summary || 'Analysis detected security indicators requiring review.')}
+                  </p>
+
+                  <!-- Compact Risk Bar Scale -->
                   <div class="sentinel-risk-bar-wrap">
+                    <div class="sentinel-bar-track">
+                      <div class="sentinel-bar-fill" style="width: ${Math.min(100, Math.max(0, parseFloat(riskScore) * 10))}%;"></div>
+                      <div class="sentinel-score-pin" style="left: ${Math.min(100, Math.max(0, parseFloat(riskScore) * 10))}%;" title="Score: ${riskScore} (${riskLevelText})"></div>
+                    </div>
                     <div class="sentinel-scale-boundaries">
                       <span class="sentinel-scale-mark pos-0">0<small>LOW</small></span>
                       <span class="sentinel-scale-mark pos-25">2.5<small>MED</small></span>
@@ -769,44 +770,17 @@
                       <span class="sentinel-scale-mark pos-75">7.5<small>CRIT</small></span>
                       <span class="sentinel-scale-mark pos-100">10</span>
                     </div>
-                    <div class="sentinel-bar-track">
-                      <div class="sentinel-bar-fill" style="width: ${Math.min(100, Math.max(0, parseFloat(riskScore) * 10))}%;"></div>
-                      <div class="sentinel-score-pin" style="left: ${Math.min(100, Math.max(0, parseFloat(riskScore) * 10))}%;" title="Score: ${riskScore} (${riskLevelText})"></div>
-                    </div>
                   </div>
-
-                  <p class="sentinel-score-explanation">
-                    ${escapeHtml(currentResults.summary || 'Demo analysis detected suspicious indicators requiring review.')}
-                  </p>
                 </div>
 
-                ${currentResults.attachments && currentResults.attachments.length > 0 ? `
-                  <!-- Attachment Metadata Scan Results -->
-                  <div class="sentinel-attachments-section">
-                    <div class="sentinel-attachments-header">
-                      <span class="sentinel-attachments-title">Attachment Metadata (${currentResults.attachments.length})</span>
-                    </div>
-                    <div class="sentinel-attachments-list">
-                      ${currentResults.attachments.map(att => `
-                        <div class="sentinel-attachment-card ${att.threat_score >= 5.0 ? 'high-risk' : (att.threat_score >= 2.5 ? 'med-risk' : 'low-risk')}">
-                          <div class="sentinel-att-info">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-                            <span class="sentinel-att-name" title="${escapeHtml(att.filename || att.name || 'attachment')}">${escapeHtml(att.filename || att.name || 'attachment')}</span>
-                          </div>
-                          <div class="sentinel-att-meta">
-                            <span class="sentinel-badge-sev ${(att.risk_level || 'LOW').toLowerCase()}">${att.threat_score !== undefined ? att.threat_score.toFixed(1) : '0.0'} ${att.risk_level || 'LOW'}</span>
-                          </div>
-                        </div>
-                      `).join('')}
-                    </div>
-                  </div>
-                ` : ''}
-
-                <!-- Findings List -->
+                <!-- WHY THIS WAS FLAGGED (Security Signals) -->
                 <div class="sentinel-findings-section">
                   <div class="sentinel-findings-header">
-                    <span class="sentinel-findings-title">Security Findings (${findingsList.length})</span>
-                    <span class="sentinel-findings-hint">Click row to toggle details</span>
+                    <div>
+                      <h3 class="sentinel-findings-title">WHY THIS WAS FLAGGED</h3>
+                      <span class="sentinel-findings-subtitle">${findingsList.length} security ${findingsList.length === 1 ? 'indicator' : 'indicators'} detected</span>
+                    </div>
+                    <span class="sentinel-findings-hint">Click finding to toggle details</span>
                   </div>
 
                   <div class="sentinel-findings-list">
@@ -821,24 +795,23 @@
                               <span class="sentinel-finding-icon ${sevClass}">
                                 ${getFindingIconSvg(finding.type || finding.icon)}
                               </span>
-                              <div>
-                                <div class="sentinel-finding-title-row">
-                                  <span class="sentinel-finding-title">${escapeHtml(finding.title)}</span>
-                                  <span class="sentinel-badge-sev ${sevClass}">${escapeHtml(finding.severity)}</span>
-                                </div>
-                                <p class="sentinel-finding-desc">${escapeHtml(finding.description || finding.explanation)}</p>
-                              </div>
+                              <span class="sentinel-finding-title">${escapeHtml(finding.title)}</span>
                             </div>
-                            <span class="sentinel-arrow-icon" aria-hidden="true">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                ${isExpanded ? '<path d="m18 15-6-6-6 6"/>' : '<path d="m6 9 6 6 6-6"/>'}
-                              </svg>
-                            </span>
+                            <div class="sentinel-finding-right">
+                              <span class="sentinel-badge-sev ${sevClass}">${escapeHtml(finding.severity)}</span>
+                              <span class="sentinel-arrow-icon ${isExpanded ? 'rotated' : ''}" aria-hidden="true">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                  <path d="m6 9 6 6 6-6"/>
+                                </svg>
+                              </span>
+                            </div>
                           </div>
                           ${isExpanded ? `
                             <div class="sentinel-finding-details">
-                              <p><strong>Recommendation:</strong> ${escapeHtml(riskRecommendation)}</p>
-                              <span class="sentinel-signal-id">Signal Type: ${escapeHtml(finding.type)}</span>
+                              <p class="sentinel-finding-why"><strong>Why it matters:</strong> ${escapeHtml(finding.description || finding.explanation)}</p>
+                              <div class="sentinel-finding-meta-row">
+                                <span class="sentinel-signal-id">Signal: ${escapeHtml(finding.type)}</span>
+                              </div>
                             </div>
                           ` : ''}
                         </div>
@@ -847,23 +820,58 @@
                   </div>
                 </div>
 
-                <!-- Security Recommendation Box -->
-                <div class="sentinel-rec-box">
+                ${attachmentsList.length > 0 ? `
+                  <!-- Attachment Summary Section (Progressive Disclosure) -->
+                  <div class="sentinel-attachments-section">
+                    <div class="sentinel-attachments-header" id="sentinel-toggle-attachments" tabIndex="0" role="button" aria-expanded="${isAttachmentsExpanded}">
+                      <div class="sentinel-attachments-left">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        <span class="sentinel-attachments-title">Attachments (${attachmentsList.length})</span>
+                      </div>
+                      <div class="sentinel-attachments-right">
+                        <span class="sentinel-attachments-status">${attachmentsList.length} analyzed</span>
+                        <span class="sentinel-arrow-icon ${isAttachmentsExpanded ? 'rotated' : ''}" aria-hidden="true">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="m6 9 6 6 6-6"/>
+                          </svg>
+                        </span>
+                      </div>
+                    </div>
+                    ${isAttachmentsExpanded ? `
+                      <div class="sentinel-attachments-list">
+                        ${attachmentsList.map(att => `
+                          <div class="sentinel-attachment-card ${att.threat_score >= 5.0 ? 'high-risk' : (att.threat_score >= 2.5 ? 'med-risk' : 'low-risk')}">
+                            <div class="sentinel-att-info">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                              <span class="sentinel-att-name" title="${escapeHtml(att.filename || att.name || 'attachment')}">${escapeHtml(att.filename || att.name || 'attachment')}</span>
+                            </div>
+                            <div class="sentinel-att-meta">
+                              <span class="sentinel-badge-sev ${(att.risk_level || 'LOW').toLowerCase()}">${att.threat_score !== undefined ? att.threat_score.toFixed(1) : '0.0'} ${att.risk_level || 'LOW'}</span>
+                            </div>
+                          </div>
+                        `).join('')}
+                      </div>
+                    ` : ''}
+                  </div>
+                ` : ''}
+
+                <!-- Recommended Action Box -->
+                <div class="sentinel-rec-box ${riskLevelClass}">
                   <div class="sentinel-rec-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>Security Guidance</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>RECOMMENDED ACTION</span>
                   </div>
                   <p class="sentinel-rec-text">${escapeHtml(riskRecommendation)}</p>
                 </div>
 
-                <!-- Action Buttons -->
+                <!-- Secondary Action Buttons -->
                 <div class="sentinel-actions-row">
                   <button type="button" id="sentinel-btn-review" class="sentinel-btn ${reviewStatus === 'reviewed' ? 'sentinel-btn-success' : 'sentinel-btn-secondary'}" aria-label="Mark email review status">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
                     <span>${reviewStatus === 'reviewed' ? 'Reviewed ✓' : 'Mark as Reviewed'}</span>
                   </button>
                   <button type="button" id="sentinel-btn-rescan" class="sentinel-btn sentinel-btn-secondary" aria-label="Rescan email and attachments">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                     <span>Rescan Email</span>
                   </button>
                 </div>
@@ -871,9 +879,9 @@
             `}
           </div>
 
-          <!-- Footer Disclaimer -->
+          <!-- Muted Footer Disclaimer -->
           <div class="sentinel-panel-footer">
-            <p class="sentinel-footer-note">Demo mode: analysis processed locally. Email credentials or full attachments are never uploaded or stored.</p>
+            <p class="sentinel-footer-note">Demo mode: analysis processed locally. Email credentials or full attachments are never stored.</p>
           </div>
         ` : ''}
       </div>
@@ -931,6 +939,23 @@
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           collapseBtn.click();
+        }
+      });
+    }
+
+    // Attachment section expand/collapse toggle
+    const attToggleBtn = panelEl.querySelector('#sentinel-toggle-attachments');
+    if (attToggleBtn) {
+      const toggleAttFn = (e) => {
+        e.stopPropagation();
+        isAttachmentsExpanded = !isAttachmentsExpanded;
+        renderOrUpdatePanel(emailView);
+      };
+      attToggleBtn.addEventListener('click', toggleAttFn);
+      attToggleBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleAttFn(e);
         }
       });
     }
