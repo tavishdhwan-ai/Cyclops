@@ -34,6 +34,55 @@
   --sentinel-subtle-box-hover: rgba(39, 39, 42, 0.7);
 }
 
+/* --- Directional Theme Wipe Animation --- */
+
+/* Left-to-right wipe (Dark → Light): new theme reveals from left edge */
+@keyframes sentinel-wipe-ltr {
+  from { clip-path: inset(0 100% 0 0 round 12px); }
+  to   { clip-path: inset(0 0%   0 0 round 12px); }
+}
+
+/* Right-to-left wipe (Light → Dark): new theme reveals from right edge */
+@keyframes sentinel-wipe-rtl {
+  from { clip-path: inset(0 0% 0 100% round 12px); }
+  to   { clip-path: inset(0 0% 0 0%   round 12px); }
+}
+
+/* Wipe overlay — a full-cover target-theme snapshot placed above the panel */
+.sentinel-wipe-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  z-index: 10;
+  /* Overlay uses its own panel inner layout so theme variables resolve correctly */
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  gap: 10px;
+  box-sizing: border-box;
+  background: var(--sentinel-card-bg);
+}
+
+/* Animation trigger classes */
+.sentinel-wipe-overlay.sentinel-wipe-ltr {
+  animation: sentinel-wipe-ltr 520ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.sentinel-wipe-overlay.sentinel-wipe-rtl {
+  animation: sentinel-wipe-rtl 520ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Reduced motion: disable wipe (JS also checks this and skips to instant) */
+@media (prefers-reduced-motion: reduce) {
+  .sentinel-wipe-overlay.sentinel-wipe-ltr,
+  .sentinel-wipe-overlay.sentinel-wipe-rtl {
+    animation: none;
+    clip-path: none;
+  }
+}
+
 .sentinel-panel.sentinel-theme-light,
 :root.sentinel-theme-light {
   --sentinel-bg: #ffffff;
@@ -86,6 +135,61 @@
 
   --sentinel-subtle-box-bg: rgba(39, 39, 42, 0.4);
   --sentinel-subtle-box-hover: rgba(39, 39, 42, 0.7);
+}
+
+/*
+ * Wipe overlay theme variable scopes.
+ * The overlay element carries its own theme class, so we must re-declare all
+ * CSS custom properties on it directly — the overlay's children resolve from
+ * the overlay element, not from the parent .sentinel-panel (which still holds
+ * the old theme during the wipe animation).
+ */
+.sentinel-wipe-overlay.sentinel-theme-light {
+  --sentinel-bg: #ffffff;
+  --sentinel-card-bg: #ffffff;
+  --sentinel-border: #e5e5e5;
+  --sentinel-border-light: #d4d4d8;
+  --sentinel-text: #111111;
+  --sentinel-text-muted: #52525b;
+  --sentinel-text-dim: #737373;
+  --sentinel-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  --sentinel-crit-bg: #fef2f2;
+  --sentinel-crit-border: #fecaca;
+  --sentinel-crit-text: #dc2626;
+  --sentinel-warn-bg: #fffbeb;
+  --sentinel-warn-border: #fde68a;
+  --sentinel-warn-text: #d97706;
+  --sentinel-safe-bg: #f0fdf4;
+  --sentinel-safe-border: #bbf7d0;
+  --sentinel-safe-text: #16a34a;
+  --sentinel-subtle-box-bg: #fafafa;
+  --sentinel-subtle-box-hover: #f4f4f5;
+  background: #ffffff;
+  color: #111111;
+}
+
+.sentinel-wipe-overlay.sentinel-theme-dark {
+  --sentinel-bg: #09090b;
+  --sentinel-card-bg: rgba(24, 24, 27, 0.96);
+  --sentinel-border: #27272a;
+  --sentinel-border-light: #3f3f46;
+  --sentinel-text: #f4f4f5;
+  --sentinel-text-muted: #a1a1aa;
+  --sentinel-text-dim: #71717a;
+  --sentinel-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 4px 12px -2px rgba(0, 0, 0, 0.4);
+  --sentinel-crit-bg: rgba(239, 68, 68, 0.1);
+  --sentinel-crit-border: rgba(239, 68, 68, 0.3);
+  --sentinel-crit-text: #ef4444;
+  --sentinel-warn-bg: rgba(245, 158, 11, 0.1);
+  --sentinel-warn-border: rgba(245, 158, 11, 0.3);
+  --sentinel-warn-text: #f59e0b;
+  --sentinel-safe-bg: rgba(16, 185, 129, 0.1);
+  --sentinel-safe-border: rgba(16, 185, 129, 0.3);
+  --sentinel-safe-text: #10b981;
+  --sentinel-subtle-box-bg: rgba(39, 39, 42, 0.4);
+  --sentinel-subtle-box-hover: rgba(39, 39, 42, 0.7);
+  background: rgba(24, 24, 27, 0.96);
+  color: #f4f4f5;
 }
 
 /* --- Extension Popup Styling --- */
@@ -416,6 +520,7 @@ input:checked+.sentinel-slider:before {
 }
 
 .sentinel-panel-inner {
+  position: relative; /* Required for wipe overlay absolute positioning */
   background: var(--sentinel-card-bg);
   border: 1px solid var(--sentinel-border);
   border-radius: var(--sentinel-radius-lg);
@@ -426,7 +531,6 @@ input:checked+.sentinel-slider:before {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow: var(--sentinel-shadow);
-  transition: padding 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   max-height: calc(100vh - 24px);
   box-sizing: border-box;
   overflow: hidden;
@@ -568,13 +672,17 @@ input:checked+.sentinel-slider:before {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out, transform 100ms ease-out;
 }
 
 .sentinel-icon-btn:hover {
   color: var(--sentinel-text);
   background: var(--sentinel-subtle-box-hover);
   border-color: var(--sentinel-border);
+}
+
+.sentinel-icon-btn:active {
+  transform: scale(0.92);
 }
 
 .sentinel-icon-btn:focus-visible {
@@ -1519,8 +1627,34 @@ input:checked+.sentinel-slider:before {
   color: var(--sentinel-text-dim);
 }
 
+/* --- Unified Canvas Surface Dust Disintegration & Materialization System --- */
+
+.sentinel-surface-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1000010;
+  overflow: visible;
+}
+
+.sentinel-panel-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Reduced Motion support */
 @media (prefers-reduced-motion: reduce) {
+  .sentinel-surface-canvas {
+    display: none !important;
+  }
+
+  .sentinel-panel-hidden {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
 
   *,
   ::before,

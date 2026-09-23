@@ -38,8 +38,14 @@
   let observer = null;
   let debounceTimeout = null;
 
+  // Particle & Transition Animation state
+  let isTransitionAnimating = false;
+  let activeParticleTimer = null;
+  let activeParticleOverlay = null;
+
   // Theme & Drag state
   let currentTheme = 'dark';
+  let isThemeWipeInProgress = false;  // Guard: prevents overlapping wipe animations
   let isDragging = false;
   let dragStartX = 0;
   let dragStartY = 0;
@@ -73,6 +79,91 @@
       panelEl.classList.add('sentinel-theme-dark');
       panelEl.classList.remove('sentinel-theme-light');
     }
+  }
+
+  /**
+   * performThemeWipe - Directional horizontal clip-path wipe between themes.
+   *
+   * Dark  → Light : new theme reveals Left → Right (➡️)
+   * Light → Dark  : new theme reveals Right → Left (⬅️)
+   *
+   * When reduced-motion is preferred the wipe is skipped and the theme
+   * is applied instantly (identical to the old applyTheme path).
+   */
+  function performThemeWipe(panelEl, fromTheme, toTheme) {
+    if (!panelEl) return;
+
+    // Respect prefers-reduced-motion — instant switch, no wipe.
+    const prefersReducedMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReducedMotion) {
+      applyTheme(panelEl, toTheme);
+      return;
+    }
+
+    // Guard: if a wipe is already running, finish it immediately and start fresh.
+    if (isThemeWipeInProgress) {
+      // Remove any stale overlay
+      const stale = panelEl.querySelector('.sentinel-wipe-overlay');
+      if (stale) stale.remove();
+      // Commit the current theme-in-progress state so panel is in a known state
+      applyTheme(panelEl, toTheme);
+      isThemeWipeInProgress = false;
+      return;
+    }
+
+    isThemeWipeInProgress = true;
+
+    // Determine wipe direction:
+    //   dark  → light  : ltr (new light theme sweeps from left)
+    //   light → dark   : rtl (new dark theme sweeps from right)
+    const wipeClass = (toTheme === 'light') ? 'sentinel-wipe-ltr' : 'sentinel-wipe-rtl';
+
+    // Find the inner card element to attach overlay to.
+    const innerEl = panelEl.querySelector('.sentinel-panel-inner');
+    if (!innerEl) {
+      // Fallback: no inner found, just switch instantly.
+      applyTheme(panelEl, toTheme);
+      isThemeWipeInProgress = false;
+      return;
+    }
+
+    // Build the wipe overlay: a full-size div carrying the target theme.
+    // It is positioned absolute inside .sentinel-panel-inner (which has
+    // position:relative + overflow:hidden + border-radius), so it clips cleanly.
+    const overlay = document.createElement('div');
+    overlay.className =
+      `sentinel-wipe-overlay sentinel-theme-${toTheme} ${wipeClass}`;
+
+    // Clone only the direct children of innerEl into the overlay, so the target
+    // theme CSS variables (on the overlay element) cascade into each child.
+    // Exclude any stale .sentinel-wipe-overlay to prevent recursive nesting.
+    Array.from(innerEl.childNodes).forEach((child) => {
+      if (child.classList && child.classList.contains('sentinel-wipe-overlay')) return;
+      overlay.appendChild(child.cloneNode(true));
+    });
+
+    innerEl.appendChild(overlay);
+
+    // On animation end: commit theme, remove overlay, clear guard.
+    const onWipeDone = () => {
+      overlay.removeEventListener('animationend', onWipeDone);
+      // Safety: overlay may have already been removed by a rapid click guard.
+      if (overlay.parentNode) overlay.remove();
+      applyTheme(panelEl, toTheme);
+      isThemeWipeInProgress = false;
+    };
+
+    overlay.addEventListener('animationend', onWipeDone);
+
+    // Failsafe timeout in case animationend never fires (e.g. display:none).
+    setTimeout(() => {
+      if (isThemeWipeInProgress) {
+        onWipeDone();
+      }
+    }, 700);
   }
 
   function updateThemeToggleButton(panelEl, theme) {
@@ -546,11 +637,273 @@
 
   function handleStateChange() {
     if (!isProtectionEnabled) {
-      debugLog('Extension disabled - removing panel');
-      removePanel();
+      debugLog('Extension disabled - disintegrating panel');
+      disintegrateAndRemovePanel();
     } else {
       checkGmailAndInject();
     }
+  }
+
+  // Accessibility check for reduced motion
+  function isReducedMotionPreferred() {
+    return typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  // Active animation tracking handles
+  let activeCanvasRaf = null;
+  let activeCanvasEl = null;
+
+  function cancelActiveAnimations() {
+    if (activeParticleTimer) {
+      clearTimeout(activeParticleTimer);
+      activeParticleTimer = null;
+    }
+    if (activeCanvasRaf) {
+      cancelAnimationFrame(activeCanvasRaf);
+      activeCanvasRaf = null;
+    }
+    if (activeCanvasEl) {
+      if (activeCanvasEl.parentNode) {
+        activeCanvasEl.remove();
+      }
+      activeCanvasEl = null;
+    }
+    if (activeParticleOverlay && activeParticleOverlay.parentNode) {
+      activeParticleOverlay.remove();
+    }
+    activeParticleOverlay = null;
+    isTransitionAnimating = false;
+
+    const panelEl = document.getElementById(PANEL_ID);
+    if (panelEl) {
+      panelEl.classList.remove('sentinel-panel-hidden', 'sentinel-materializing', 'sentinel-disintegrating');
+      panelEl.style.opacity = '';
+    }
+  }
+
+  // Surface sampling engine: maps panel layout & DOM elements into particle fragments
+  function samplePanelSurface(panelEl) {
+    const panelRect = panelEl.getBoundingClientRect();
+    const width = Math.round(panelRect.width || 420);
+    const height = Math.round(panelRect.height || 300);
+
+    const isLight = panelEl.classList.contains('sentinel-theme-light');
+    const defaultBg = isLight ? '#ffffff' : 'rgba(24, 24, 27, 0.96)';
+
+    // Map visible sub-elements inside panel to sample exact layout coordinates and colors
+    const elements = Array.from(panelEl.querySelectorAll('*')).map(el => {
+      const r = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      const bg = style.backgroundColor;
+      const fg = style.color;
+      const border = style.borderColor;
+      const hasText = el.childNodes.length > 0 && Array.from(el.childNodes).some(n => n.nodeType === 3 && n.textContent.trim().length > 0);
+
+      return {
+        rect: {
+          left: r.left - panelRect.left,
+          top: r.top - panelRect.top,
+          right: r.right - panelRect.left,
+          bottom: r.bottom - panelRect.top,
+          width: r.width,
+          height: r.height
+        },
+        bg: (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') ? bg : null,
+        fg: (fg && fg !== 'rgba(0, 0, 0, 0)' && fg !== 'transparent') ? fg : null,
+        border: (border && border !== 'rgba(0, 0, 0, 0)' && border !== 'transparent' && style.borderWidth !== '0px') ? border : null,
+        hasText
+      };
+    }).filter(item => item.rect.width > 0 && item.rect.height > 0);
+
+    const particles = [];
+    const step = 8; // Sampling resolution step in px
+
+    for (let y = 2; y < height; y += step) {
+      for (let x = 2; x < width; x += step) {
+        let color = defaultBg;
+        let isForeground = false;
+
+        // Traverse elements from topmost child to background
+        for (let i = elements.length - 1; i >= 0; i--) {
+          const item = elements[i];
+          if (x >= item.rect.left && x <= item.rect.right && y >= item.rect.top && y <= item.rect.bottom) {
+            if (item.hasText && item.fg) {
+              color = item.fg;
+              isForeground = true;
+              break;
+            } else if (item.bg) {
+              color = item.bg;
+              if (item.bg !== defaultBg) isForeground = true;
+              break;
+            } else if (item.border) {
+              color = item.border;
+              isForeground = true;
+              break;
+            }
+          }
+        }
+
+        // Staggered peeling delay across panel regions (wave top-left to bottom-right + subtle noise)
+        const positionalDelay = (y / height) * 140 + (x / width) * 80;
+        const randomNoise = (Math.sin(x * 12.7 + y * 31.1) * 0.5 + 0.5) * 120;
+        const delay = positionalDelay + randomNoise;
+
+        particles.push({
+          x,
+          y,
+          color,
+          size: isForeground ? (2.2 + Math.random() * 1.5) : (step * 0.7 + Math.random() * 1.5),
+          delay,
+          vx: (Math.sin(y * 0.08 + x * 0.04) * 0.7) + 0.5 + Math.random() * 0.6, // Wind horizontal drift
+          vy: -(1.4 + Math.random() * 1.8) // Upward air carry
+        });
+      }
+    }
+
+    return { width, height, particles };
+  }
+
+  // Unified Canvas Particle Animation Engine (Surface Disintegration & Dust Materialization)
+  function runCanvasSurfaceAnimation(panelEl, type, duration, onComplete) {
+    cancelActiveAnimations();
+
+    if (!panelEl || isReducedMotionPreferred()) {
+      if (typeof onComplete === 'function') onComplete();
+      return;
+    }
+
+    const { width, height, particles } = samplePanelSurface(panelEl);
+
+    if (particles.length === 0) {
+      if (typeof onComplete === 'function') onComplete();
+      return;
+    }
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const canvas = document.createElement('canvas');
+    canvas.className = 'sentinel-surface-canvas';
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      if (typeof onComplete === 'function') onComplete();
+      return;
+    }
+    ctx.scale(dpr, dpr);
+
+    if (getComputedStyle(panelEl).position === 'static') {
+      panelEl.style.position = 'relative';
+    }
+    panelEl.appendChild(canvas);
+    activeCanvasEl = canvas;
+
+    // Instantly hide actual panel DOM content while canvas takes over visually
+    panelEl.classList.add('sentinel-panel-hidden');
+    isTransitionAnimating = true;
+
+    const startTime = performance.now();
+
+    const animateFrame = (now) => {
+      const elapsed = now - startTime;
+      ctx.clearRect(0, 0, width, height);
+
+      let activeCount = 0;
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+
+        if (type === 'disintegrate') {
+          // DISINTEGRATION: Panel surface breaks apart, particles peel away and drift with wind
+          if (elapsed < p.delay) {
+            // Unpeeled fragment: remains solid on panel surface
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = 1.0;
+            ctx.fillRect(p.x, p.y, p.size, p.size);
+            activeCount++;
+          } else {
+            const particleElapsed = elapsed - p.delay;
+            const animProgress = particleElapsed / (duration - 100);
+
+            if (animProgress < 1.0) {
+              const driftX = p.x + p.vx * particleElapsed * 0.12;
+              const driftY = p.y + p.vy * particleElapsed * 0.12;
+              const alpha = Math.max(0, 1.0 - Math.pow(animProgress, 1.5));
+
+              ctx.fillStyle = p.color;
+              ctx.globalAlpha = alpha;
+              ctx.fillRect(driftX, driftY, p.size * (1 - animProgress * 0.4), p.size * (1 - animProgress * 0.4));
+              activeCount++;
+            }
+          }
+        } else {
+          // MATERIALIZATION: Dust fragments arrive from upwind positions, converging to form panel
+          const startDelay = p.delay * 0.6;
+          const particleElapsed = elapsed - startDelay;
+          const particleDuration = duration - 120;
+
+          if (particleElapsed <= 0) {
+            // Not arrived yet
+            activeCount++;
+          } else {
+            const rawProgress = Math.min(1.0, particleElapsed / particleDuration);
+            // Ease-out cubic deceleration curve
+            const progress = 1.0 - Math.pow(1.0 - rawProgress, 3);
+
+            // Upwind starting offset
+            const startX = p.x + (p.vx * 70) + 40;
+            const startY = p.y + (p.vy * 60) - 30;
+
+            const currentX = startX + (p.x - startX) * progress;
+            const currentY = startY + (p.y - startY) * progress;
+            const alpha = Math.min(1.0, progress * 1.3);
+
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = alpha;
+            ctx.fillRect(currentX, currentY, p.size, p.size);
+
+            if (rawProgress < 1.0) {
+              activeCount++;
+            }
+          }
+        }
+      }
+
+      if (elapsed < duration + 150 && activeCount > 0) {
+        activeCanvasRaf = requestAnimationFrame(animateFrame);
+      } else {
+        cancelActiveAnimations();
+        if (typeof onComplete === 'function') {
+          onComplete();
+        }
+      }
+    };
+
+    activeCanvasRaf = requestAnimationFrame(animateFrame);
+  }
+
+  // Disintegrate and remove panel cleanly
+  function disintegrateAndRemovePanel() {
+    if (scanTimer) {
+      clearInterval(scanTimer);
+      scanTimer = null;
+    }
+    isScanning = false;
+
+    const panelEl = document.getElementById(PANEL_ID);
+    if (!panelEl) return;
+
+    if (isReducedMotionPreferred()) {
+      removePanel();
+      return;
+    }
+
+    runCanvasSurfaceAnimation(panelEl, 'disintegrate', 700, () => {
+      removePanel();
+    });
   }
 
   // Setup DOM Observer with debouncing for Gmail SPA navigation
@@ -687,9 +1040,9 @@
     const emailView = findGmailEmailView();
     if (!emailView) {
       if (currentEmailKey !== null) {
-        debugLog('Left email view - removing panel');
+        debugLog('Left email view - disintegrating panel');
         currentEmailKey = null;
-        removePanel();
+        disintegrateAndRemovePanel();
       }
       return;
     }
@@ -697,7 +1050,7 @@
     const newEmailKey = getEmailUniqueKey(emailView);
     const existingPanel = document.getElementById(PANEL_ID);
 
-    if (existingPanel && currentEmailKey === newEmailKey) {
+    if (existingPanel && currentEmailKey === newEmailKey && !existingPanel.classList.contains('sentinel-disintegrating')) {
       return;
     }
 
@@ -760,7 +1113,21 @@
 
   // Execute scan sequence with backend query and progress loading state
   async function startScanSequence(emailView) {
-    if (scanTimer) clearInterval(scanTimer);
+    if (scanTimer) {
+      clearInterval(scanTimer);
+      scanTimer = null;
+    }
+
+    cancelActiveAnimations();
+
+    let existingPanel = document.getElementById(PANEL_ID);
+    const isNewPanel = !existingPanel || existingPanel.classList.contains('sentinel-panel-hidden');
+
+    if (isNewPanel && existingPanel) {
+      existingPanel.remove();
+      existingPanel = null;
+    }
+
     isScanning = true;
     scanProgress = 15;
     scanStep = 'Checking sender & connecting to FastAPI backend...';
@@ -768,44 +1135,60 @@
     scanResults = null; // Clear stale results from previous email
 
     renderOrUpdatePanel(emailView);
+    const panelEl = document.getElementById(PANEL_ID);
 
-    // Progress bar animation while requesting backend
-    const progressInterval = setInterval(() => {
-      if (scanProgress < 85) {
-        scanProgress += 15;
-        if (scanProgress === 45) {
-          scanStep = 'Analyzing email body & links against threat models...';
-        } else if (scanProgress === 75) {
-          scanStep = 'Evaluating security findings & recommendation...';
+    const executeScanningSequence = async () => {
+      if (!isScanning) return;
+
+      // Progress bar animation while requesting backend
+      scanTimer = setInterval(() => {
+        if (scanProgress < 85) {
+          scanProgress += 15;
+          if (scanProgress === 45) {
+            scanStep = 'Analyzing email body & links against threat models...';
+          } else if (scanProgress === 75) {
+            scanStep = 'Evaluating security findings & recommendation...';
+          }
+          renderOrUpdatePanel(emailView);
         }
-        renderOrUpdatePanel(emailView);
+      }, 150);
+
+      const emailContext = extractEmailContext(emailView);
+      const result = await fetchBackendScan(emailContext);
+
+      if (scanTimer) clearInterval(scanTimer);
+      scanTimer = null;
+      scanProgress = 100;
+
+      if (result.success) {
+        isBackendLive = true;
+        backendErrorMessage = null;
+        scanResults = result.data;
+        debugLog('Backend scan successful:', scanResults);
+      } else {
+        isBackendLive = false;
+        backendErrorMessage = result.error;
+        scanResults = localFallbackResults;
+        debugLog('Backend fetch failed - utilizing fallback:', backendErrorMessage);
       }
-    }, 150);
 
-    const emailContext = extractEmailContext(emailView);
-    const result = await fetchBackendScan(emailContext);
+      isScanning = false;
+      renderOrUpdatePanel(emailView);
+    };
 
-    clearInterval(progressInterval);
-    scanProgress = 100;
-
-    if (result.success) {
-      isBackendLive = true;
-      backendErrorMessage = null;
-      scanResults = result.data;
-      debugLog('Backend scan successful:', scanResults);
+    if (isNewPanel && panelEl && !isReducedMotionPreferred()) {
+      runCanvasSurfaceAnimation(panelEl, 'assemble', 600, () => {
+        if (panelEl) panelEl.classList.remove('sentinel-panel-hidden');
+        executeScanningSequence();
+      });
     } else {
-      isBackendLive = false;
-      backendErrorMessage = result.error;
-      scanResults = localFallbackResults;
-      debugLog('Backend fetch failed - utilizing fallback:', backendErrorMessage);
+      executeScanningSequence();
     }
-
-    isScanning = false;
-    renderOrUpdatePanel(emailView);
   }
 
   // Remove existing panel safely
   function removePanel() {
+    cancelActiveAnimations();
     const existing = document.getElementById(PANEL_ID);
     if (existing) {
       existing.remove();
@@ -1179,10 +1562,14 @@
         e.stopPropagation();
         const activeTheme = getSavedTheme();
         const nextTheme = activeTheme === 'light' ? 'dark' : 'light';
+
+        // Persist and update button immediately — responsive feel.
         saveTheme(nextTheme);
         currentTheme = nextTheme;
-        applyTheme(panelEl, nextTheme);
         updateThemeToggleButton(panelEl, nextTheme);
+
+        // Run the directional wipe. The real theme class is applied at wipe end.
+        performThemeWipe(panelEl, activeTheme, nextTheme);
       });
 
       themeBtn.addEventListener('keydown', (e) => {
