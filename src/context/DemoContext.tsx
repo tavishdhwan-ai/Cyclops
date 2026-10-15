@@ -165,86 +165,107 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const scanUrl = async (rawUrl: string): Promise<UrlScanResult> => {
-    let cleanUrl = rawUrl.trim();
-    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-      cleanUrl = 'https://' + cleanUrl;
+    const trimmed = rawUrl.trim();
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const response = await fetch(`${apiUrl}/scan-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: trimmed }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Backend scan failed (HTTP ${response.status})`);
+      }
+
+      const data = await response.json();
+
+      // Map backend AggregatedUrlReport into frontend UrlScanResult
+      let mappedRiskLevel: RiskLevel = 'safe';
+      if (data.risk_level === 'CRITICAL') mappedRiskLevel = 'critical';
+      else if (data.risk_level === 'HIGH' || data.risk_level === 'MEDIUM') mappedRiskLevel = 'warning';
+      else if (data.risk_level === 'LOW') mappedRiskLevel = 'safe';
+      else mappedRiskLevel = 'neutral';
+
+      let mappedVerdict: UrlScanResult['verdict'] = 'safe';
+      if (data.verdict === 'malicious') mappedVerdict = 'malicious';
+      else if (data.verdict === 'phishing') mappedVerdict = 'phishing';
+      else if (data.verdict === 'suspicious') mappedVerdict = 'suspicious';
+      else mappedVerdict = 'safe';
+
+      const signalsList: string[] = (data.signals || []).map((s: { title: string; description: string }) => `${s.title}: ${s.description}`);
+      if (signalsList.length === 0 && data.risk_factors && data.risk_factors.length > 0) {
+        signalsList.push(...data.risk_factors);
+      }
+
+      const domainName = data.normalization?.ascii_hostname || trimmed.replace(/^https?:\/\//, '').split('/')[0];
+      const primaryIp = data.hosting_intelligence?.ip_address || (data.dns_intelligence?.resolved_ips && data.dns_intelligence.resolved_ips[0]) || 'Unresolved';
+      const geoLoc = data.hosting_intelligence?.country
+        ? `${data.hosting_intelligence.city ? data.hosting_intelligence.city + ', ' : ''}${data.hosting_intelligence.country}`
+        : 'Unknown Location';
+
+      const liveResult: UrlScanResult = {
+        id: data.id || `url-${Date.now()}`,
+        url: data.sanitized_display_url || data.normalized_url || trimmed,
+        timestamp: 'Just now',
+        verdict: mappedVerdict,
+        riskLevel: mappedRiskLevel,
+        riskScore: Math.round((data.threat_score || 0) * 10), // convert 0-10 to 0-100 scale for UI progress
+        threat_score: data.threat_score,
+        summary: data.summary,
+        plain_english_explanation: data.plain_english_explanation,
+        domainInfo: {
+          domain: domainName,
+          registrar: data.domain_registration?.registrar || 'Unknown / Private',
+          registeredDaysAgo: data.domain_registration?.domain_age_days ?? -1,
+          ipAddress: primaryIp,
+          location: geoLoc,
+          sslValid: data.normalization?.scheme === 'https',
+          sslIssuer: data.normalization?.scheme === 'https' ? 'TLS Encrypted' : 'None (HTTP)',
+        },
+        suspiciousSignals: signalsList,
+        recommendedAction: data.recommended_action || 'Review security observations before proceeding.',
+        reassuring_factors: data.reassuring_factors || [],
+        risk_factors: data.risk_factors || [],
+        missing_data_notes: data.missing_data_notes || [],
+        signals: data.signals || [],
+        normalization: data.normalization,
+        redirect_analysis: data.redirect_analysis,
+        dns_intelligence: data.dns_intelligence,
+        hosting_intelligence: data.hosting_intelligence,
+        domain_registration: data.domain_registration,
+        page_content: data.page_content,
+        reputation_providers: data.reputation_providers || [],
+        isLiveScan: true,
+      };
+
+      setUrlScans((prev) => [liveResult, ...prev]);
+      setStats((prev) => ({ ...prev, urlsScanned: prev.urlsScanned + 1 }));
+
+      const newActivity: ActivityEvent = {
+        id: `act-${Date.now()}`,
+        employeeName: 'Security Analyst',
+        employeeEmail: 'analyst@cyclops.internal',
+        employeeAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80',
+        role: 'AppSec Team',
+        eventType: 'url_check',
+        title: `URL Scanned: ${domainName}`,
+        description: `Backend scan completed: ${data.risk_level} (${data.verdict.toUpperCase()})`,
+        severity: mappedRiskLevel,
+        timestamp: 'Just now',
+        ipAddress: primaryIp,
+        device: 'Cyclops Web Engine',
+      };
+      setActivities((prev) => [newActivity, ...prev]);
+
+      return liveResult;
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown scan error';
+      showToast('Scan Error', errMsg, 'error');
+      throw err;
     }
-
-    let domainName = cleanUrl.replace(/^https?:\/\//, '').split('/')[0];
-    const isPhishingDemo = cleanUrl.includes('login') || cleanUrl.includes('verify') || cleanUrl.includes('fix') || cleanUrl.includes('update');
-    const isMaliciousDemo = cleanUrl.includes('malware') || cleanUrl.includes('exe') || cleanUrl.includes('bin') || cleanUrl.includes('.ru');
-
-    let verdict: UrlScanResult['verdict'] = 'safe';
-    let riskLevel: RiskLevel = 'safe';
-    let riskScore = Math.floor(Math.random() * 10) + 2;
-    let suspiciousSignals: string[] = [];
-    let recommendedAction = 'No malicious indicators detected. Safe to proceed.';
-
-    if (isMaliciousDemo) {
-      verdict = 'malicious';
-      riskLevel = 'critical';
-      riskScore = 96;
-      suspiciousSignals = [
-        'Direct executable payload detected on path',
-        'Flagged by SentinelAI Threat Intelligence database',
-        'Hostname resolves to known C2 server IP',
-        'No valid TLS certificate found',
-      ];
-      recommendedAction = 'Block domain network traffic and notify security admin immediately.';
-    } else if (isPhishingDemo) {
-      verdict = 'phishing';
-      riskLevel = 'critical';
-      riskScore = 91;
-      suspiciousSignals = [
-        `Typosquatted domain mimicking official service`,
-        'Domain registered recently (< 7 days ago)',
-        'Cloned authentication form structure detected',
-        'Mismatch between domain registrant and SSL certificate holder',
-      ];
-      recommendedAction = 'Block URL access across workspace browsers and alert targeted users.';
-    }
-
-    const newScan: UrlScanResult = {
-      id: `url-${Date.now()}`,
-      url: cleanUrl,
-      timestamp: 'Just now',
-      verdict,
-      riskLevel,
-      riskScore,
-      domainInfo: {
-        domain: domainName,
-        registrar: isPhishingDemo ? 'NameCheap Inc.' : 'MarkMonitor Inc.',
-        registeredDaysAgo: isPhishingDemo ? 4 : 3420,
-        ipAddress: isPhishingDemo ? '198.54.117.210' : '104.16.123.96',
-        location: isPhishingDemo ? 'Frankfurt, Germany' : 'San Francisco, US',
-        sslValid: true,
-        sslIssuer: isPhishingDemo ? "Let's Encrypt Authority X3" : 'DigiCert TLS RSA SHA256',
-      },
-      suspiciousSignals,
-      recommendedAction,
-    };
-
-    setUrlScans((prev) => [newScan, ...prev]);
-    setStats((prev) => ({ ...prev, urlsScanned: prev.urlsScanned + 1 }));
-
-    // Add activity event
-    const newActivity: ActivityEvent = {
-      id: `act-${Date.now()}`,
-      employeeName: 'Alex Vance (Admin)',
-      employeeEmail: 'alex.v@acmecorp.com',
-      employeeAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80',
-      role: 'IT Security Admin',
-      eventType: 'url_check',
-      title: `URL Scanned: ${domainName}`,
-      description: `Scan completed with verdict: ${verdict.toUpperCase()}`,
-      severity: riskLevel,
-      timestamp: 'Just now',
-      ipAddress: '192.168.1.50',
-      device: 'MacBook Air (macOS 14.2)',
-    };
-    setActivities((prev) => [newActivity, ...prev]);
-
-    return newScan;
   };
 
   const scanDocument = async (fileName: string, fileSize: string = '1.2 MB'): Promise<DocumentScanResult> => {

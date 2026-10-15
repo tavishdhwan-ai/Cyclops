@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-from app.schemas import EmailScanRequest, EmailScanResponse
+from app.schemas import EmailScanRequest, EmailScanResponse, UrlScanRequest
 from app.scanner import analyze_demo_email
+
 
 app = FastAPI(
     title="SentinelAI Backend",
@@ -47,6 +48,18 @@ async def generic_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    """Clean validation error response for invalid URLs or unsupported schemes."""
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "error": "Bad Request",
+            "message": str(exc),
+        },
+    )
+
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health status endpoint."""
@@ -64,3 +77,14 @@ async def scan_email(request: EmailScanRequest = EmailScanRequest()):
     Returns deterministic rule-based scan response.
     """
     return analyze_demo_email(request)
+
+
+@app.post("/scan-url", tags=["Scanner"])
+async def scan_url_endpoint(request: UrlScanRequest):
+    """
+    Perform comprehensive, SSRF-protected website URL security analysis.
+    Safely inspects domain age, DNS, redirect hops, static HTML, and external intelligence.
+    """
+    from app.scanner.url_pipeline import orchestrate_url_scan
+    return await orchestrate_url_scan(request.url)
+

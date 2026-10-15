@@ -66,3 +66,8 @@ class EmailScanResponse(BaseModel):
     attachments: List[AttachmentResult] = Field(default_factory=list)
     recommendation: str
 
+
+class UrlScanRequest(BaseModel):
+    url: str = Field(..., description="Target URL or domain name to inspect", min_length=1)
+
+
