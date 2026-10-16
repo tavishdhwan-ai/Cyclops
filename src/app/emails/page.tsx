@@ -22,9 +22,11 @@ export default function EmailSecurityPage() {
 
   // Handle scanning simulation (1.5 - 2s duration)
   useEffect(() => {
-    setIsScanning(true);
-    setScanProgress(10);
-    setScanStep('Checking sender domain & authentication signatures...');
+    const initTimer = setTimeout(() => {
+      setIsScanning(true);
+      setScanProgress(10);
+      setScanStep('Checking sender domain & authentication signatures...');
+    }, 0);
 
     const step1 = setTimeout(() => {
       setScanProgress(40);
@@ -46,6 +48,7 @@ export default function EmailSecurityPage() {
     }, 1800);
 
     return () => {
+      clearTimeout(initTimer);
       clearTimeout(step1);
       clearTimeout(step2);
       clearTimeout(step3);

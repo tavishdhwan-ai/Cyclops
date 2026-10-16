@@ -1,9 +1,15 @@
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
-from app.schemas import EmailScanRequest, EmailScanResponse, UrlScanRequest
+from app.schemas import (
+    EmailScanRequest,
+    EmailScanResponse,
+    UrlScanRequest,
+    DocumentScanResponse,
+    DocumentScanPayload,
+)
 from app.scanner import analyze_demo_email
 
 
@@ -87,4 +93,41 @@ async def scan_url_endpoint(request: UrlScanRequest):
     """
     from app.scanner.url_pipeline import orchestrate_url_scan
     return await orchestrate_url_scan(request.url)
+
+
+@app.post("/scan-document", response_model=DocumentScanResponse, tags=["Document Scanner"])
+async def scan_document_upload(
+    file: UploadFile = File(..., description="Document file to safely analyze")
+):
+    """
+    Perform comprehensive 9-feature static security analysis on an uploaded document file.
+    Inspects macros, embedded scripts, HTML phishing, hyperlinks, exploits, forms, and hidden text.
+    Renders safe static preview without executing active content.
+    """
+    from app.scanner.doc_pipeline import orchestrate_document_scan
+    file_bytes = await file.read()
+    filename = file.filename or "uploaded_document.bin"
+    return orchestrate_document_scan(file_bytes, filename)
+
+
+@app.post("/scan-document-json", response_model=DocumentScanResponse, tags=["Document Scanner"])
+async def scan_document_json(payload: DocumentScanPayload):
+    """
+    Perform comprehensive 9-feature static security analysis via JSON payload.
+    Supports base64 file bytes or pre-configured test fixtures.
+    """
+    import base64
+    from app.scanner.doc_pipeline import orchestrate_document_scan
+    from app.scanner.presets import get_fixture_bytes
+
+    if payload.file_content_base64:
+        try:
+            file_bytes = base64.b64decode(payload.file_content_base64)
+        except Exception:
+            raise ValueError("Invalid base64 encoding in file_content_base64.")
+    else:
+        # Load synthetic benign test fixture corresponding to requested preset or filename
+        file_bytes = get_fixture_bytes(payload.preset or payload.file_name)
+
+    return orchestrate_document_scan(file_bytes, payload.file_name)
 

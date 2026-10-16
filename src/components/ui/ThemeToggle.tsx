@@ -9,13 +9,11 @@ interface ThemeToggleProps {
   size?: 'sm' | 'md';
 }
 
+const emptySubscribe = () => () => {};
+
 export const ThemeToggle: React.FC<ThemeToggleProps> = ({ className = '', size = 'sm' }) => {
   const { theme, toggleTheme } = useDemoContext();
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = React.useSyncExternalStore(emptySubscribe, () => true, () => false);
 
   const isDark = theme === 'dark';
   const label = isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode';

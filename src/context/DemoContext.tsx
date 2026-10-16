@@ -10,6 +10,7 @@ import {
   SecurityAlert,
   WorkspaceSettings,
   RiskLevel,
+  DocEmbeddedLinkItem,
 } from '../types';
 import {
   mockStats,
@@ -56,7 +57,7 @@ interface DemoContextType {
   markEmailSafe: (id: string) => void;
   reportEmailPhishing: (id: string) => void;
   scanUrl: (url: string) => Promise<UrlScanResult>;
-  scanDocument: (fileName: string, fileSize?: string) => Promise<DocumentScanResult>;
+  scanDocument: (fileName: string, fileSize?: string, rawFile?: File) => Promise<DocumentScanResult>;
   markAlertReviewed: (id: string) => void;
   resolveAlert: (id: string) => void;
   updateSettings: (newSettings: Partial<WorkspaceSettings>) => void;
@@ -79,26 +80,26 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isQuickScanOpen, setIsQuickScanOpen] = useState(false);
   const [rescanKey, setRescanKey] = useState(0);
   const [emailReviewStatus, setEmailReviewStatus] = useState<'pending' | 'reviewed'>('pending');
-  const [theme, setThemeState] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('sentinel_theme') as Theme | null;
+        if (saved === 'light' || saved === 'dark') return saved;
+        return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+      } catch {
+        // Fallback
+      }
+    }
+    return 'dark';
+  });
 
   React.useEffect(() => {
-    try {
-      const saved = localStorage.getItem('sentinel_theme') as Theme | null;
-      if (saved === 'light' || saved === 'dark') {
-        setThemeState(saved);
-        if (saved === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-        }
-      } else {
-        const isDarkCurrently = document.documentElement.classList.contains('dark');
-        setThemeState(isDarkCurrently ? 'dark' : 'light');
-      }
-    } catch {
-      // Fallback
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
-  }, []);
+  }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
     setThemeState(newTheme);
@@ -273,7 +274,105 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const scanDocument = async (fileName: string, fileSize: string = '1.2 MB'): Promise<DocumentScanResult> => {
+  const scanDocument = async (fileName: string, fileSize: string = '1.2 MB', rawFile?: File): Promise<DocumentScanResult> => {
+    try {
+      let data: (Partial<DocumentScanResult> & {
+        file_name?: string;
+        file_size_formatted?: string;
+        file_type?: string;
+        sha256_hash?: string;
+        risk_score?: number;
+        detected_signals?: string[];
+        executive_summary?: string;
+        recommended_action?: string;
+        risk_level?: RiskLevel;
+      }) | null = null;
+
+      if (rawFile) {
+        const formData = new FormData();
+        formData.append('file', rawFile);
+        const res = await fetch('http://127.0.0.1:8000/scan-document', {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } else {
+        const res = await fetch('http://127.0.0.1:8000/scan-document-json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_name: fileName, preset: fileName }),
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+
+      if (data) {
+        const liveDoc: DocumentScanResult = {
+          id: data.id || `doc-${Date.now()}`,
+          fileName: data.file_name || fileName,
+          fileSize: data.file_size_formatted || fileSize,
+          fileType: data.file_type || 'Document',
+          fileHash: data.sha256_hash || '',
+          timestamp: 'Just now',
+          riskLevel: data.risk_level || 'safe',
+          verdict: data.verdict || 'clean',
+          riskScore: data.risk_score,
+          detectedSignals: data.detected_signals || [],
+          macroDetected: data.macro_inspection?.macro_detected ?? false,
+          externalConnections: data.embedded_links?.links?.map((l: DocEmbeddedLinkItem) => l.destination_url) || [],
+          aiSummary: data.executive_summary || '',
+          recommendedAction: data.recommended_action || '',
+          macro_inspection: data.macro_inspection,
+          html_safety: data.html_safety,
+          embedded_links: data.embedded_links,
+          exploit_indicators: data.exploit_indicators,
+          forms_and_submission: data.forms_and_submission,
+          safe_view: data.safe_view,
+          brand_domain_consistency: data.brand_domain_consistency,
+          script_translator: data.script_translator,
+          hidden_content: data.hidden_content,
+        };
+
+        setDocScans((prev) => [liveDoc, ...prev]);
+        setStats((prev) => ({ ...prev, documentsChecked: prev.documentsChecked + 1 }));
+
+        const newActivity: ActivityEvent = {
+          id: `act-${Date.now()}`,
+          employeeName: 'Alex Vance (Admin)',
+          employeeEmail: 'alex.v@acmecorp.com',
+          employeeAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80',
+          role: 'IT Security Admin',
+          eventType: 'document_analysis',
+          title: `Document Analyzed: ${fileName}`,
+          description: `Live scan completed: ${liveDoc.verdict.toUpperCase()}`,
+          severity: liveDoc.riskLevel,
+          timestamp: 'Just now',
+          ipAddress: '192.168.1.50',
+          device: 'MacBook Air (macOS 14.2)',
+        };
+        setActivities((prev) => [newActivity, ...prev]);
+        return liveDoc;
+      }
+    } catch {
+      // Fallback to local mock below if backend unreachable
+    }
+
+    // Check if preset matches any mockDocumentScans
+    const existingMatch = mockDocumentScans.find((d) => d.fileName.toLowerCase() === fileName.toLowerCase());
+    if (existingMatch) {
+      const cloned: DocumentScanResult = {
+        ...existingMatch,
+        id: `doc-${Date.now()}`,
+        timestamp: 'Just now',
+      };
+      setDocScans((prev) => [cloned, ...prev]);
+      setStats((prev) => ({ ...prev, documentsChecked: prev.documentsChecked + 1 }));
+      return cloned;
+    }
+
     const isExe = fileName.endsWith('.exe') || fileName.endsWith('.bin') || fileName.includes('.pdf.exe');
     const isMacro = fileName.endsWith('.xlsm') || fileName.endsWith('.docm');
 

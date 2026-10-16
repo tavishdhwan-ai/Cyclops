@@ -10,7 +10,6 @@ import {
   FileText,
   CheckCircle2,
   ShieldCheck,
-  Info,
   Lock,
 } from 'lucide-react';
 

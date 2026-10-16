@@ -9,11 +9,6 @@ import { ActivityEvent } from '../../types';
 import {
   Activity,
   Search,
-  Globe,
-  Mail,
-  FileSearch,
-  Key,
-  Sliders,
 } from 'lucide-react';
 
 export default function ActivityPage() {

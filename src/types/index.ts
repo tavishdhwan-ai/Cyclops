@@ -314,12 +314,132 @@ export interface UrlScanResult {
 }
 
 
+export interface DocMacroInspection {
+  macro_detected: boolean;
+  status: 'detected' | 'not_detected' | 'unable_to_inspect' | 'unsupported';
+  embedded_objects_detected: string[];
+  suspicious_indicators: string[];
+  extracted_code_status: string;
+  extracted_snippets: string[];
+  affected_components: string[];
+  evidence_count: number;
+  explanation: string;
+  warnings: string[];
+}
+
+export interface DocHtmlSafety {
+  is_html: boolean;
+  login_fields_found: string[];
+  password_fields_found: string[];
+  external_form_destinations: string[];
+  remote_scripts_detected: string[];
+  suspicious_redirects_or_frames: string[];
+  brand_domain_mismatches: string[];
+  obfuscated_scripts: string[];
+  inspection_limitations: string[];
+  explanation: string;
+  risk_level: RiskLevel;
+}
+
+export interface DocEmbeddedLinkItem {
+  visible_text: string;
+  destination_url: string;
+  destination_domain: string;
+  location: string;
+  mismatch_warning?: string | null;
+  threat_verdict: string;
+  recommended_action: string;
+}
+
+export interface DocEmbeddedLinks {
+  total_links_found: number;
+  mismatched_links_count: number;
+  links: DocEmbeddedLinkItem[];
+  summary: string;
+  warnings: string[];
+}
+
+export interface DocExploitIndicators {
+  structural_anomalies: string[];
+  suspicious_actions: string[];
+  embedded_payloads: string[];
+  known_signature_matches: string[];
+  parser_warnings: string[];
+  compression_ratio: number;
+  engine_version: string;
+  coverage_and_limitations: string;
+  explanation: string;
+}
+
+export interface DocFormSubmission {
+  interactive_forms_detected: boolean;
+  form_type: string;
+  sensitive_fields_detected: string[];
+  submission_actions: string[];
+  external_destinations: string[];
+  event_triggered_behavior: string[];
+  evidence: string[];
+  limitations: string;
+  explanation: string;
+}
+
+export interface DocSafeViewPage {
+  page_number: number;
+  image_data_url: string;
+  width: number;
+  height: number;
+  extracted_text_snippet: string;
+}
+
+export interface DocSafeView {
+  preview_id: string;
+  status: 'available' | 'unavailable' | 'rendering_failed';
+  total_pages: number;
+  pages: DocSafeViewPage[];
+  disclaimer: string;
+  retention_policy: string;
+}
+
+export interface DocBrandDomainConsistency {
+  claimed_organization?: string | null;
+  primary_domain?: string | null;
+  destination_domains: string[];
+  domain_relationship_assessment: string;
+  mismatches: string[];
+  supporting_evidence: string[];
+  confidence_or_uncertainty_explanation: string;
+}
+
+export interface DocScriptTranslation {
+  has_script: boolean;
+  language: string;
+  plain_english_summary: string;
+  observed_operations: string[];
+  inferred_intent_warning: string;
+  evidence_lines: string[];
+}
+
+export interface DocHiddenContentItem {
+  extracted_text: string;
+  location: string;
+  classification_reason: string;
+  detection_type: 'structural' | 'visual_inference';
+  context_snippet: string;
+}
+
+export interface DocHiddenContent {
+  hidden_elements_count: number;
+  items: DocHiddenContentItem[];
+  summary: string;
+  explanation: string;
+}
+
 export interface DocumentScanResult {
   id: string;
   fileName: string;
   fileSize: string;
   fileType: string;
-  fileHash: string; // SHA-256 demo
+  fileHash: string; // SHA-256
   timestamp: string;
   riskLevel: RiskLevel;
   verdict: 'clean' | 'suspicious' | 'malicious';
@@ -328,6 +448,18 @@ export interface DocumentScanResult {
   externalConnections: string[];
   aiSummary: string;
   recommendedAction: string;
+  riskScore?: number; // 0-100
+
+  // Nine Advanced Document Security Features
+  macro_inspection?: DocMacroInspection;
+  html_safety?: DocHtmlSafety;
+  embedded_links?: DocEmbeddedLinks;
+  exploit_indicators?: DocExploitIndicators;
+  forms_and_submission?: DocFormSubmission;
+  safe_view?: DocSafeView;
+  brand_domain_consistency?: DocBrandDomainConsistency;
+  script_translator?: DocScriptTranslation;
+  hidden_content?: DocHiddenContent;
 }
 
 export interface ActivityEvent {

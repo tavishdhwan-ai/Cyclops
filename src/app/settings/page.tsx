@@ -3,17 +3,12 @@
 import React, { useState } from 'react';
 import { useDemoContext } from '../../context/DemoContext';
 import { Card } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
 import {
   Settings,
   Building2,
   Bell,
   ShieldCheck,
-  Lock,
   Save,
-  CheckCircle2,
-  MessageSquare,
-  Globe,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -21,7 +16,7 @@ export default function SettingsPage() {
   const [formState, setFormState] = useState(settings);
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleChange = (key: keyof typeof settings, value: any) => {
+  const handleChange = (key: keyof typeof settings, value: string | boolean) => {
     setFormState((prev) => ({ ...prev, [key]: value }));
   };
 
