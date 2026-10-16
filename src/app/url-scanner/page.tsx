@@ -9,27 +9,26 @@ import {
   Globe,
   Search,
   ShieldCheck,
-  ShieldAlert,
   Loader2,
   AlertTriangle,
   Server,
   Lock,
-  ArrowRight,
   ExternalLink,
   History,
   Info,
   CheckCircle2,
-  XCircle,
-  HelpCircle,
-  Clock,
   Layers,
-  FileCode,
   Network,
   CornerDownRight,
   ChevronDown,
   ChevronRight,
   RefreshCw,
   AlertOctagon,
+  KeyRound,
+  FileDown,
+  CheckSquare,
+  Building2,
+  Calendar,
 } from 'lucide-react';
 
 export default function UrlScannerPage() {
@@ -50,13 +49,12 @@ export default function UrlScannerPage() {
     setScanStep('Validating input syntax & normalizing scheme...');
 
     try {
-      // Show genuine pipeline stages briefly as backend computes
       const progressTimer = setTimeout(() => {
-        setScanStep('Resolving DNS & enforcing SSRF boundaries...');
+        setScanStep('Resolving DNS, checking SSL/TLS & enforcing SSRF boundaries...');
       }, 400);
 
       const progressTimer2 = setTimeout(() => {
-        setScanStep('Inspecting redirect hops & querying hosting intelligence...');
+        setScanStep('Querying URLhaus threat intelligence & inspecting response headers...');
       }, 900);
 
       const result = await scanUrl(inputUrl.trim());
@@ -81,20 +79,20 @@ export default function UrlScannerPage() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Page Header */}
-      <div className="border-b border-zinc-200 dark:border-zinc-800 pb-4">
+      <div className="border-b border-[#E5E5E5] dark:border-[#262626] pb-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Globe className="h-5 w-5 text-zinc-500 dark:text-zinc-400" />
-              Website URL Security Scanner
+            <h1 className="text-xl font-bold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+              <Globe className="h-5 w-5 text-[#737373]" />
+              Website URL Security Intelligence
             </h1>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              Production-grade passive URL intelligence, SSRF-protected redirect analysis, RDAP domain registration, and hosting telemetry.
+            <p className="text-xs text-[#737373] mt-1">
+              Passive multi-signal intelligence, TLS certificate verification, threat feeds, credential auditing, download inspection, and infrastructure telemetry.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-zinc-500 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md px-2.5 py-1 shrink-0">
+          <div className="flex items-center gap-2 text-[11px] text-[#737373] bg-[#FAFAFA] dark:bg-[#262626] border border-[#E5E5E5] dark:border-[#262626] rounded-md px-2.5 py-1 shrink-0">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
-            Non-executing static inspection mode
+            Non-executing passive inspection mode
           </div>
         </div>
       </div>
@@ -102,12 +100,12 @@ export default function UrlScannerPage() {
       {/* Input Card */}
       <Card className="space-y-4" interactive={false}>
         <form onSubmit={handleScanSubmit} className="space-y-3">
-          <label className="block text-xs font-semibold text-zinc-900 dark:text-zinc-200">
+          <label className="block text-xs font-semibold text-[#111111] dark:text-[#FFFFFF]">
             Target URL or Domain Name
           </label>
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
-              <Globe className="absolute left-3.5 top-3 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+              <Globe className="absolute left-3.5 top-3 h-4 w-4 text-[#737373]" />
               <input
                 type="text"
                 value={inputUrl}
@@ -115,14 +113,14 @@ export default function UrlScannerPage() {
                   setInputUrl(e.target.value);
                   if (scanError) setScanError(null);
                 }}
-                placeholder="e.g. github.com or https://example.com/login"
-                className="w-full rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 pl-10 pr-4 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 dark:focus:border-zinc-700 focus:outline-hidden"
+                placeholder="e.g. github.com, https://example.com/login, or direct link"
+                className="w-full rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] pl-10 pr-4 py-2.5 text-xs text-[#111111] dark:text-[#FFFFFF] placeholder-[#737373] focus:border-[#111111] dark:focus:border-[#FFFFFF] focus:outline-hidden"
               />
             </div>
             <button
               type="submit"
               disabled={isScanning || !inputUrl.trim()}
-              className="flex items-center justify-center gap-2 rounded-lg bg-zinc-900 dark:bg-zinc-100 px-5 py-2.5 text-xs font-semibold text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white disabled:opacity-50 transition-colors shrink-0"
+              className="flex items-center justify-center gap-2 rounded-lg bg-[#111111] dark:bg-[#FFFFFF] px-5 py-2.5 text-xs font-semibold text-[#FFFFFF] dark:text-[#111111] hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shrink-0"
             >
               {isScanning ? (
                 <>
@@ -141,7 +139,7 @@ export default function UrlScannerPage() {
 
         {/* Scan Error Alert with Safe Retry */}
         {scanError && (
-          <div className="rounded-lg border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-700 dark:text-red-300 flex items-start justify-between gap-3">
+          <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-700 dark:text-red-300 flex items-start justify-between gap-3">
             <div className="flex items-start gap-2">
               <AlertOctagon className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
               <div>
@@ -159,28 +157,28 @@ export default function UrlScannerPage() {
         )}
 
         {/* Safe Presets Notice */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800/60">
-          <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Quick Test Candidates:</span>
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#E5E5E5] dark:border-[#262626]">
+          <span className="text-[11px] text-[#737373]">Quick Inspection Candidates:</span>
           <button
             type="button"
             onClick={() => setPresetUrl('github.com')}
-            className="rounded-md border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:border-zinc-500 dark:hover:border-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-200"
+            className="rounded-md border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] px-2.5 py-1 text-xs text-[#737373] hover:border-[#111111] dark:hover:border-[#FFFFFF] hover:text-[#111111] dark:hover:text-[#FFFFFF]"
           >
-            github.com (Verified Domain)
+            github.com (Clean Web)
           </button>
           <button
             type="button"
             onClick={() => setPresetUrl('example.com')}
-            className="rounded-md border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:border-zinc-500 dark:hover:border-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-200"
+            className="rounded-md border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] px-2.5 py-1 text-xs text-[#737373] hover:border-[#111111] dark:hover:border-[#FFFFFF] hover:text-[#111111] dark:hover:text-[#FFFFFF]"
           >
-            example.com (Standard Web)
+            example.com (Standard)
           </button>
           <button
             type="button"
             onClick={() => setPresetUrl('127.0.0.1:8000')}
-            className="rounded-md border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400 hover:border-zinc-500 dark:hover:border-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-200"
+            className="rounded-md border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] px-2.5 py-1 text-xs text-[#737373] hover:border-[#111111] dark:hover:border-[#FFFFFF] hover:text-[#111111] dark:hover:text-[#FFFFFF]"
           >
-            127.0.0.1 (SSRF Test)
+            127.0.0.1 (SSRF Guard Test)
           </button>
         </div>
       </Card>
@@ -188,16 +186,16 @@ export default function UrlScannerPage() {
       {/* Scanning Stage Progress Indicator */}
       {isScanning && (
         <Card className="text-center py-8 space-y-3" interactive={false}>
-          <Loader2 className="h-7 w-7 text-zinc-500 dark:text-zinc-400 animate-spin mx-auto" />
+          <Loader2 className="h-7 w-7 text-[#737373] animate-spin mx-auto" />
           <div>
-            <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-200">Executing Multi-Signal Inspection Pipeline...</p>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 font-mono">{scanStep}</p>
+            <p className="text-xs font-semibold text-[#111111] dark:text-[#FFFFFF]">Executing Multi-Signal Inspection Pipeline...</p>
+            <p className="text-[11px] text-[#737373] mt-1 font-mono">{scanStep}</p>
           </div>
-          <div className="flex justify-center items-center gap-4 text-[10px] text-zinc-400 dark:text-zinc-500 pt-2">
-            <span>• Non-executing client</span>
-            <span>• Pre-flight DNS validation</span>
-            <span>• SSRF enforcement</span>
-            <span>• RDAP registry lookup</span>
+          <div className="flex justify-center items-center gap-4 text-[10px] text-[#737373] pt-2">
+            <span>• TLS certificate analysis</span>
+            <span>• URLhaus reputation check</span>
+            <span>• Input form auditing</span>
+            <span>• Download safety check</span>
           </div>
         </Card>
       )}
@@ -205,58 +203,63 @@ export default function UrlScannerPage() {
       {/* Active Scan Result Display */}
       {!isScanning && activeResult && (
         <div className="space-y-6">
-          <Card className="space-y-6 border-zinc-200 dark:border-zinc-800" interactive={false}>
+          {/* Main Verdict Card */}
+          <Card className="space-y-6 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
             {/* Verdict Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5E5E5] dark:border-[#262626] pb-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-[#737373]">
                     Security Verdict
                   </span>
                   <Badge level={activeResult.riskLevel}>{activeResult.verdict.toUpperCase()}</Badge>
-                  {activeResult.isLiveScan && (
-                    <span className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded font-medium">
-                      Live Backend Result
+                  {activeResult.isLiveScan ? (
+                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded font-medium">
+                      Live Backend Scan
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-[#FAFAFA] dark:bg-[#262626] text-[#737373] border border-[#E5E5E5] dark:border-[#262626] px-2 py-0.5 rounded font-medium">
+                      Simulated Demo Fixture
                     </span>
                   )}
                 </div>
-                <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100 font-mono break-all">
+                <h2 className="text-base font-bold text-[#111111] dark:text-[#FFFFFF] font-mono break-all">
                   {activeResult.url}
                 </h2>
-                <p className="text-[11px] text-zinc-500 mt-0.5">Scanned: {activeResult.timestamp}</p>
+                <p className="text-[11px] text-[#737373] mt-0.5">Scanned: {activeResult.timestamp}</p>
               </div>
 
-              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 text-center shrink-0 min-w-36">
-                <span className="text-[10px] text-zinc-500 uppercase tracking-wider block">
+              <div className="rounded-xl border border-[#E5E5E5] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#111111] p-3 text-center shrink-0 min-w-36">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">
                   Threat Index
                 </span>
                 <span
                   className={`text-2xl font-black ${
                     activeResult.riskScore > 50
-                      ? 'text-red-500 dark:text-red-400'
+                      ? 'text-red-600 dark:text-red-400'
                       : activeResult.riskScore > 24
-                      ? 'text-amber-500 dark:text-amber-400'
-                      : 'text-emerald-500 dark:text-emerald-400'
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-emerald-600 dark:text-emerald-400'
                   }`}
                 >
                   {activeResult.threat_score !== undefined ? activeResult.threat_score.toFixed(1) : (activeResult.riskScore / 10).toFixed(1)} / 10.0
                 </span>
-                <span className="text-[9px] text-zinc-400 block mt-0.5">Continuous Threat Scale</span>
+                <span className="text-[9px] text-[#737373] block mt-0.5">Continuous Threat Scale</span>
               </div>
             </div>
 
             {/* Plain English Assessment */}
-            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                <Info className="h-4 w-4 text-zinc-500" />
+            <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#111111] p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#111111] dark:text-[#FFFFFF]">
+                <Info className="h-4 w-4 text-[#737373]" />
                 Assessment Summary
               </div>
-              <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+              <p className="text-xs text-[#111111] dark:text-[#FFFFFF] leading-relaxed">
                 {activeResult.plain_english_explanation || activeResult.summary || 'URL scan completed.'}
               </p>
-              <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
-                <span className="font-semibold text-zinc-600 dark:text-zinc-400">
-                  Recommended Action: <span className="font-normal text-zinc-900 dark:text-zinc-200">{activeResult.recommendedAction}</span>
+              <div className="pt-2 border-t border-[#E5E5E5] dark:border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
+                <span className="font-semibold text-[#737373]">
+                  Recommended Action: <span className="font-normal text-[#111111] dark:text-[#FFFFFF]">{activeResult.recommendedAction}</span>
                 </span>
               </div>
             </div>
@@ -264,13 +267,13 @@ export default function UrlScannerPage() {
             {/* Reassuring vs Risk Evidence Split */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Risk Factors */}
-              <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2 bg-white dark:bg-zinc-900/40">
-                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+              <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] p-3.5 space-y-2 bg-[#FFFFFF] dark:bg-[#111111]">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#111111] dark:text-[#FFFFFF]">
                   <AlertTriangle className="h-4 w-4 text-amber-500" />
                   Elevated Risk Indicators
                 </div>
                 {activeResult.risk_factors && activeResult.risk_factors.length > 0 ? (
-                  <ul className="space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                  <ul className="space-y-1.5 text-xs text-[#737373]">
                     {activeResult.risk_factors.map((rf, idx) => (
                       <li key={idx} className="flex items-start gap-2">
                         <span className="text-amber-500 font-bold">•</span>
@@ -279,7 +282,7 @@ export default function UrlScannerPage() {
                     ))}
                   </ul>
                 ) : activeResult.suspiciousSignals.length > 0 ? (
-                  <ul className="space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                  <ul className="space-y-1.5 text-xs text-[#737373]">
                     {activeResult.suspiciousSignals.map((sig, idx) => (
                       <li key={idx} className="flex items-start gap-2">
                         <span className="text-amber-500 font-bold">•</span>
@@ -288,18 +291,18 @@ export default function UrlScannerPage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-zinc-500 italic">No significant risk indicators identified.</p>
+                  <p className="text-xs text-[#737373] italic">No significant risk indicators identified.</p>
                 )}
               </div>
 
               {/* Reassuring Factors */}
-              <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3.5 space-y-2 bg-white dark:bg-zinc-900/40">
-                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+              <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] p-3.5 space-y-2 bg-[#FFFFFF] dark:bg-[#111111]">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#111111] dark:text-[#FFFFFF]">
                   <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                   Reassuring Evidence
                 </div>
                 {activeResult.reassuring_factors && activeResult.reassuring_factors.length > 0 ? (
-                  <ul className="space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                  <ul className="space-y-1.5 text-xs text-[#737373]">
                     {activeResult.reassuring_factors.map((rf, idx) => (
                       <li key={idx} className="flex items-start gap-2">
                         <span className="text-emerald-500 font-bold">✓</span>
@@ -308,360 +311,819 @@ export default function UrlScannerPage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-zinc-500 italic">Standard web property evidence without positive reputation badges.</p>
+                  <p className="text-xs text-[#737373] italic">Standard web property evidence without positive reputation badges.</p>
                 )}
               </div>
             </div>
+          </Card>
 
-            {/* Feature: Destination & Normalization Details */}
-            {activeResult.normalization && (
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-300 flex items-center gap-2">
-                  <CornerDownRight className="h-4 w-4 text-zinc-400" />
-                  Destination & Normalization Analysis
-                </h3>
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 text-xs space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div>
-                      <span className="text-[10px] text-zinc-500 block">Submitted Input:</span>
-                      <span className="font-mono text-zinc-900 dark:text-zinc-200 break-all">{activeResult.normalization.raw_input}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-zinc-500 block">Canonical Normalized URL:</span>
-                      <span className="font-mono text-zinc-900 dark:text-zinc-200 break-all">{activeResult.normalization.normalized_url}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800/60 text-[11px]">
-                    <div>
-                      <span className="text-zinc-500 block">Hostname:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">{activeResult.normalization.ascii_hostname}</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block">Host Format:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
-                        {activeResult.normalization.is_ip ? `Raw IPv${activeResult.normalization.ip_version}` : 'Domain Name'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block">Punycode / IDN:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
-                        {activeResult.normalization.is_punycode ? 'Yes (Punycode)' : 'Standard ASCII'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block">Port:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
-                        {activeResult.normalization.port || (activeResult.normalization.scheme === 'https' ? '443 (default)' : '80 (default)')}
-                      </span>
-                    </div>
-                  </div>
-
-                  {activeResult.normalization.has_homograph_chars && (
-                    <div className="p-2 rounded bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-300 text-xs flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-semibold">Homograph Risk Detected: </span>
-                        <span>Target contains lookalike Unicode characters mimicking Latin letters.</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Feature: Redirect-Hop Timeline */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-300 flex items-center gap-2">
-                <Layers className="h-4 w-4 text-zinc-400" />
-                Redirect-Hop Timeline
+          {/* ================================================================= */}
+          {/* FEATURE 1: SSL/TLS Certificate Intelligence Card */}
+          {/* ================================================================= */}
+          <Card className="space-y-4 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+            <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
+              <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+                <Lock className="h-4 w-4 text-[#737373]" />
+                SSL/TLS Certificate Intelligence
               </h3>
-              {activeResult.redirect_analysis && activeResult.redirect_analysis.redirect_chain.length > 0 ? (
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 space-y-3">
-                  <div className="space-y-2 text-xs">
-                    {activeResult.redirect_analysis.redirect_chain.map((hop) => (
-                      <div key={hop.hop_number} className="flex items-start gap-3 pl-1">
-                        <div className="flex flex-col items-center">
-                          <span className="h-5 w-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-700 dark:text-zinc-300">
-                            {hop.hop_number}
-                          </span>
-                          <span className="w-0.5 h-6 bg-zinc-200 dark:bg-zinc-800 mt-1"></span>
-                        </div>
-                        <div className="flex-1 pb-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-200 text-xs">{hop.url}</span>
-                            <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-600 dark:text-zinc-400">
-                              HTTP {hop.status_code}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-zinc-500 mt-0.5 flex gap-3">
-                            <span>IP: {hop.resolved_ip}</span>
-                            {hop.hostname_changed && <span className="text-amber-500 font-medium">Cross-domain change</span>}
-                            {hop.scheme_downgraded && <span className="text-red-500 font-medium">HTTPS to HTTP downgrade</span>}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {/* Final Destination */}
-                    <div className="flex items-start gap-3 pl-1">
-                      <div className="flex flex-col items-center">
-                        <span className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold">
-                          ✓
-                        </span>
-                      </div>
-                      <div className="flex-1">
-                        <span className="text-[10px] text-zinc-500 block">Final Destination:</span>
-                        <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100 text-xs break-all">
-                          {activeResult.redirect_analysis.final_url}
-                        </span>
-                        <div className="text-[11px] text-zinc-500 mt-0.5">
-                          Status: HTTP {activeResult.redirect_analysis.final_status_code || 200} • IP: {activeResult.redirect_analysis.final_resolved_ip || 'Resolved'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              {activeResult.ssl_certificate ? (
+                <span
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded border ${
+                    activeResult.ssl_certificate.is_valid
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      : activeResult.ssl_certificate.status === 'unencrypted_http'
+                      ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                      : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+                  }`}
+                >
+                  {activeResult.ssl_certificate.connection_status}
+                </span>
               ) : (
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 text-xs text-zinc-500 flex items-center justify-between">
-                  <span>No HTTP redirect hops observed. Target responded directly without forwarding.</span>
-                  <span className="text-[11px] font-mono text-zinc-400">1 Hop Direct</span>
-                </div>
+                <span className="text-[10px] text-[#737373] bg-[#FAFAFA] dark:bg-[#262626] px-2 py-0.5 rounded">
+                  {activeResult.domainInfo.sslValid ? 'HTTPS Encrypted' : 'Unencrypted'}
+                </span>
               )}
             </div>
 
-            {/* Feature: Domain Age & Infrastructure Telemetry Grid */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-300 flex items-center gap-2">
-                <Network className="h-4 w-4 text-zinc-400" />
-                Domain Registration & Network Telemetry
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-                {/* Domain Registration */}
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Domain Registration (RDAP)</p>
-                  <p className="font-semibold text-zinc-900 dark:text-zinc-200 mt-1 truncate">
-                    {activeResult.domain_registration?.registrar || activeResult.domainInfo.registrar}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">
-                    {typeof activeResult.domain_registration?.domain_age_days === 'number' && activeResult.domain_registration.domain_age_days >= 0
-                      ? `${activeResult.domain_registration.domain_age_days} days old (${activeResult.domain_registration.created_date || 'N/A'})`
-                      : activeResult.domainInfo.registeredDaysAgo >= 0
-                      ? `${activeResult.domainInfo.registeredDaysAgo} days old`
-                      : 'Not available (IP or private)'}
-                  </p>
-                </div>
+            {/* Explanation box */}
+            <div className="rounded-lg bg-[#FAFAFA] dark:bg-[#111111] border border-[#E5E5E5] dark:border-[#262626] p-3 text-xs text-[#111111] dark:text-[#FFFFFF] space-y-1">
+              <p className="font-medium text-[#737373] text-[11px] uppercase tracking-wider">
+                Cryptographic Connection Context
+              </p>
+              <p className="leading-relaxed">
+                {activeResult.ssl_certificate?.plain_language_explanation ||
+                  'HTTPS encrypts your connection, but it does not guarantee that this website is legitimate.'}
+              </p>
+            </div>
 
-                {/* Hosting & ASN */}
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Hosting & ASN Provider</p>
-                  <p className="font-semibold text-zinc-900 dark:text-zinc-200 mt-1 truncate">
-                    {activeResult.hosting_intelligence?.organization || 'Cloud / CDN Provider'}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
-                    {activeResult.hosting_intelligence?.asn || 'Autonomous System N/A'}
-                  </p>
-                </div>
-
-                {/* IP Geolocation */}
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">IP Host Location</p>
-                  <p className="font-semibold text-zinc-900 dark:text-zinc-200 mt-1 truncate">
-                    {activeResult.hosting_intelligence?.country
-                      ? `${activeResult.hosting_intelligence.city ? activeResult.hosting_intelligence.city + ', ' : ''}${activeResult.hosting_intelligence.country}`
-                      : activeResult.domainInfo.location}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5 truncate font-mono">
-                    {activeResult.hosting_intelligence?.ip_address || activeResult.domainInfo.ipAddress}
-                  </p>
-                </div>
-
-                {/* TLS & Encryption */}
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Transport Encryption</p>
-                  <p className="font-semibold text-zinc-900 dark:text-zinc-200 mt-1 truncate">
-                    {activeResult.domainInfo.sslValid ? 'TLS / HTTPS Verified' : 'Unencrypted HTTP'}
-                  </p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
-                    {activeResult.domainInfo.sslIssuer}
-                  </p>
-                </div>
+            {/* Certificate Details Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] block uppercase tracking-wider">Certificate Issuer</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1 truncate">
+                  {activeResult.ssl_certificate?.issuer || activeResult.domainInfo.sslIssuer}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5">
+                  {activeResult.ssl_certificate?.is_public_ca ? 'Publicly Trusted CA' : 'Unverified / Private CA'}
+                </span>
               </div>
 
-              {activeResult.hosting_intelligence?.contextual_note && (
-                <p className="text-[11px] text-zinc-500 italic px-1">
-                  Context: {activeResult.hosting_intelligence.contextual_note}
-                </p>
-              )}
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] block uppercase tracking-wider">Valid Until</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1 truncate">
+                  {activeResult.ssl_certificate?.valid_until ? activeResult.ssl_certificate.valid_until.split(' ')[0] : 'N/A'}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5">
+                  {typeof activeResult.ssl_certificate?.days_remaining === 'number'
+                    ? `${activeResult.ssl_certificate.days_remaining} days remaining`
+                    : 'Expiration window unknown'}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] block uppercase tracking-wider">Hostname Match</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1">
+                  {activeResult.ssl_certificate?.hostname_match ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Matches Target
+                    </span>
+                  ) : activeResult.ssl_certificate?.status === 'unencrypted_http' ? (
+                    <span className="text-[#737373]">N/A (Plaintext HTTP)</span>
+                  ) : (
+                    <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
+                      <AlertOctagon className="h-3.5 w-3.5" /> Mismatch Detected
+                    </span>
+                  )}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5 truncate">
+                  SAN: {activeResult.ssl_certificate?.subject_alt_names?.slice(0, 2).join(', ') || 'None'}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] block uppercase tracking-wider">Chain Status</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1 capitalize">
+                  {activeResult.ssl_certificate?.certificate_chain_status?.replace('_', ' ') || 'Unverified'}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5">
+                  Protocol: {activeResult.ssl_certificate?.tls_version || 'TLS'}
+                </span>
+              </div>
             </div>
 
-            {/* Feature: Safe Static Page Inspection Findings */}
-            {activeResult.page_content && (
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-300 flex items-center gap-2">
-                  <FileCode className="h-4 w-4 text-zinc-400" />
-                  Read-Only Page Structure Inspection
-                </h3>
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3.5 text-xs space-y-2.5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="font-medium text-zinc-900 dark:text-zinc-200">
-                      Page Title: <span className="font-normal italic">{activeResult.page_content.title || 'No HTML title tag detected'}</span>
-                    </span>
-                    <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded">
-                      {activeResult.page_content.forms_found.length} form(s) parsed
-                    </span>
-                  </div>
+            {/* Warnings if any */}
+            {activeResult.ssl_certificate?.warnings && activeResult.ssl_certificate.warnings.length > 0 && (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+                <span className="font-semibold block flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  Certificate Advisory
+                </span>
+                {activeResult.ssl_certificate.warnings.map((w, idx) => (
+                  <p key={idx}>• {w}</p>
+                ))}
+              </div>
+            )}
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800/60 text-[11px]">
-                    <div>
-                      <span className="text-zinc-500 block">Password Fields:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
-                        {activeResult.page_content.has_password_input ? 'Present (Form input)' : 'None detected'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block">External Form Action:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
-                        {activeResult.page_content.has_external_form_action ? 'Warning: External Post' : 'Same-origin or N/A'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block">Script Tags:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
-                        {activeResult.page_content.script_count} (Unexecuted)
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500 block">Iframe Tags:</span>
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-200">
-                        {activeResult.page_content.iframe_count}
-                      </span>
-                    </div>
-                  </div>
+            {/* Limitations Notice */}
+            <div className="text-[10px] text-[#737373] pt-1">
+              Note: Domain Validation (DV) certificates verify control of a domain name, not the legal identity or trustworthiness of the business. Free certificates from automated authorities (e.g. Let&apos;s Encrypt) are standard industry practice and not indicative of malicious intent.
+            </div>
+          </Card>
 
-                  {activeResult.page_content.limitations.length > 0 && (
-                    <div className="text-[10px] text-zinc-500 pt-1 flex flex-wrap gap-x-4">
-                      {activeResult.page_content.limitations.map((lim, i) => (
-                        <span key={i}>• {lim}</span>
-                      ))}
-                    </div>
-                  )}
+          {/* ================================================================= */}
+          {/* FEATURE 2: Real-Time Threat Intelligence & Blocklists Panel */}
+          {/* ================================================================= */}
+          <Card className="space-y-4 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+            <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
+              <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-[#737373]" />
+                Real-Time Threat Intelligence & Blocklists
+              </h3>
+              <span className="text-[11px] text-[#737373]">
+                {activeResult.reputation_providers?.length || 0} feeds evaluated
+              </span>
+            </div>
+
+            {/* Active Threat Warning Banner if any provider flagged */}
+            {activeResult.reputation_providers?.some((p) => p.is_malicious) && (
+              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-xs text-red-800 dark:text-red-200 flex items-start gap-2.5">
+                <AlertOctagon className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Confirmed Threat Intelligence Detection</span>
+                  <span>One or more authoritative threat intelligence providers have flagged this target destination as malicious. Avoid visiting or downloading files.</span>
                 </div>
               </div>
             )}
 
-            {/* Feature: Reputation Provider Results (Explicitly Handled States) */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-zinc-900 dark:text-zinc-300 flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-zinc-400" />
-                External Threat Intelligence Sources
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            {/* Provider Rows Table */}
+            <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] overflow-hidden text-xs">
+              <div className="grid grid-cols-12 bg-[#FAFAFA] dark:bg-[#111111] px-3 py-2 font-semibold text-[10px] uppercase text-[#737373] border-b border-[#E5E5E5] dark:border-[#262626]">
+                <div className="col-span-4 sm:col-span-3">Provider</div>
+                <div className="col-span-4 sm:col-span-3">Verdict / Result</div>
+                <div className="col-span-4 sm:col-span-4">Category & Evidence</div>
+                <div className="hidden sm:block sm:col-span-2 text-right">Reference</div>
+              </div>
+
+              <div className="divide-y divide-[#E5E5E5] dark:divide-[#262626]">
                 {activeResult.reputation_providers && activeResult.reputation_providers.length > 0 ? (
                   activeResult.reputation_providers.map((prov, idx) => (
-                    <div key={idx} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-zinc-900 dark:text-zinc-200">{prov.provider_name}</span>
+                    <div key={idx} className="grid grid-cols-12 px-3 py-2.5 items-center hover:bg-[#FAFAFA] dark:hover:bg-[#111111]/60 transition-colors">
+                      <div className="col-span-4 sm:col-span-3 font-semibold text-[#111111] dark:text-[#FFFFFF] truncate">
+                        {prov.provider_name}
+                      </div>
+
+                      <div className="col-span-4 sm:col-span-3">
                         {prov.status === 'clean' && (
-                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded font-medium">
-                            Clean
+                          <span className="text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded font-medium">
+                            No detection
                           </span>
                         )}
                         {prov.status === 'malicious_found' && (
-                          <span className="text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-1.5 py-0.5 rounded font-medium">
-                            Threat Found
+                          <span className="text-[10px] text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-2 py-0.5 rounded font-medium">
+                            Malicious
                           </span>
                         )}
-                        {(prov.status === 'not_configured' || prov.status === 'unavailable') && (
-                          <span className="text-[10px] text-zinc-500 bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 rounded">
-                            {prov.status === 'not_configured' ? 'Not configured' : 'Unavailable'}
+                        {prov.status === 'not_configured' && (
+                          <span className="text-[10px] text-[#737373] bg-[#FAFAFA] dark:bg-[#262626] border border-[#E5E5E5] dark:border-[#262626] px-2 py-0.5 rounded">
+                            Not configured
+                          </span>
+                        )}
+                        {prov.status === 'unavailable' && (
+                          <span className="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded">
+                            Check unavailable
+                          </span>
+                        )}
+                        {prov.status === 'rate_limited' && (
+                          <span className="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded">
+                            Rate limited
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-zinc-500">
-                        {prov.threat_details || prov.error_message || 'Status verified.'}
-                      </p>
+
+                      <div className="col-span-4 sm:col-span-4 text-[11px] text-[#737373] truncate pr-2">
+                        {prov.detection_category && (
+                          <span className="font-medium text-[#111111] dark:text-[#FFFFFF] mr-1.5">
+                            [{prov.detection_category}]
+                          </span>
+                        )}
+                        <span>{prov.threat_details || prov.error_message || 'No active malicious signatures'}</span>
+                      </div>
+
+                      <div className="hidden sm:block sm:col-span-2 text-right">
+                        {prov.reference_url ? (
+                          <a
+                            href={prov.reference_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-[#737373] hover:text-[#111111] dark:hover:text-[#FFFFFF]"
+                          >
+                            Source <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-[#737373]">—</span>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (
-                  <div className="col-span-3 text-xs text-zinc-500 italic p-2 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg text-center">
-                    No external intelligence providers queried for this sample scan.
+                  <div className="p-4 text-center text-xs text-[#737373] italic">
+                    No threat feeds populated for this URL.
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Expandable Technical Evidence & Diagnostics */}
-            <div className="border-t border-zinc-200 dark:border-zinc-800 pt-3">
-              <button
-                type="button"
-                onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
-                className="flex items-center gap-1.5 text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors"
-              >
-                {showTechnicalDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                {showTechnicalDetails ? 'Hide Raw Technical Telemetry' : 'View Raw Technical Telemetry & Diagnostic Data'}
-              </button>
-
-              {showTechnicalDetails && (
-                <div className="mt-3 rounded-lg bg-zinc-950 border border-zinc-800 p-4 font-mono text-[11px] text-zinc-300 overflow-x-auto space-y-2">
-                  <p className="text-zinc-500">// Cyclops Technical Diagnostic Log</p>
-                  <div>Scan ID: {activeResult.id}</div>
-                  <div>Submitted URL: {activeResult.url}</div>
-                  <div>Verdict: {activeResult.verdict}</div>
-                  <div>Threat Score: {activeResult.threat_score ?? (activeResult.riskScore / 10)}</div>
-                  {activeResult.missing_data_notes && activeResult.missing_data_notes.length > 0 && (
-                    <div className="pt-2 text-amber-400">
-                      [Data Caveats / Unconfigured Integrations]:
-                      {activeResult.missing_data_notes.map((m, i) => (
-                        <div key={i} className="pl-3 text-zinc-400">
-                          - {m}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {activeResult.signals && activeResult.signals.length > 0 && (
-                    <div className="pt-2">
-                      [Signals Fired]:
-                      {activeResult.signals.map((sig, i) => (
-                        <div key={i} className="pl-3 text-zinc-400">
-                          [{sig.severity.toUpperCase()}] {sig.id} (weight {sig.weight}): {sig.title}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+            <div className="text-[10px] text-[#737373] pt-1">
+              Disclaimer: An absence of threat intelligence detections does not guarantee that a website is safe. Threat intelligence databases index known malicious infrastructure after detection and reporting.
             </div>
           </Card>
+
+          {/* ================================================================= */}
+          {/* FEATURE 3: Password and Sensitive Input Auditing Card */}
+          {/* ================================================================= */}
+          <Card className="space-y-4 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+            <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
+              <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-[#737373]" />
+                Sensitive Input Audit
+              </h3>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
+                  activeResult.sensitive_input_audit?.cross_origin_submission_detected
+                    ? 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+                    : (activeResult.sensitive_input_audit?.password_fields_detected || 0) > 0
+                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                    : 'bg-[#FAFAFA] dark:bg-[#262626] text-[#737373] border-[#E5E5E5] dark:border-[#262626]'
+                }`}
+              >
+                {(activeResult.sensitive_input_audit?.password_fields_detected || 0) > 0
+                  ? 'Password Fields Detected'
+                  : 'No Credentials Requested'}
+              </span>
+            </div>
+
+            {/* Evidence-based explanation banner */}
+            <div className="rounded-lg bg-[#FAFAFA] dark:bg-[#111111] border border-[#E5E5E5] dark:border-[#262626] p-3 text-xs space-y-1">
+              <p className="font-medium text-[#737373] text-[11px] uppercase tracking-wider">
+                Static Form Audit Verdict
+              </p>
+              <p className="text-[#111111] dark:text-[#FFFFFF] leading-relaxed">
+                {activeResult.sensitive_input_audit?.evidence_based_explanation ||
+                  'No sensitive credential or payment collection inputs were detected in static markup.'}
+              </p>
+            </div>
+
+            {/* Inputs Metric Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Password Fields</span>
+                <span className="text-base font-bold text-[#111111] dark:text-[#FFFFFF] mt-1 block">
+                  {activeResult.sensitive_input_audit?.password_fields_detected ?? 0}
+                </span>
+                <span className="text-[10px] text-[#737373]">Authentication inputs</span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Login / Email Fields</span>
+                <span className="text-base font-bold text-[#111111] dark:text-[#FFFFFF] mt-1 block">
+                  {activeResult.sensitive_input_audit?.email_login_fields_detected ?? 0}
+                </span>
+                <span className="text-[10px] text-[#737373]">Account identifier inputs</span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Payment Fields</span>
+                <span className="text-base font-bold text-[#111111] dark:text-[#FFFFFF] mt-1 block">
+                  {activeResult.sensitive_input_audit?.payment_fields_detected ?? 0}
+                </span>
+                <span className="text-[10px] text-[#737373]">Credit card / CVV / PAN</span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Cross-Origin Target</span>
+                <span className="text-base font-bold mt-1 block">
+                  {activeResult.sensitive_input_audit?.cross_origin_submission_detected ? (
+                    <span className="text-red-600 dark:text-red-400">Yes (External)</span>
+                  ) : (
+                    <span className="text-emerald-600 dark:text-emerald-400">Same-Origin</span>
+                  )}
+                </span>
+                <span className="text-[10px] text-[#737373]">Form endpoint origin</span>
+              </div>
+            </div>
+
+            {/* Form Destinations List */}
+            {activeResult.sensitive_input_audit?.form_submission_destinations &&
+              activeResult.sensitive_input_audit.form_submission_destinations.length > 0 && (
+                <div className="space-y-1.5 text-xs">
+                  <span className="text-[11px] font-semibold text-[#737373]">Form Submission Action Destinations:</span>
+                  <div className="space-y-1">
+                    {activeResult.sensitive_input_audit.form_submission_destinations.map((dest, i) => (
+                      <div key={i} className="font-mono text-[11px] p-2 rounded bg-[#FAFAFA] dark:bg-[#111111] border border-[#E5E5E5] dark:border-[#262626] break-all text-[#111111] dark:text-[#FFFFFF]">
+                        {dest}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            {/* Warnings */}
+            {activeResult.sensitive_input_audit?.warnings && activeResult.sensitive_input_audit.warnings.length > 0 && (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+                <span className="font-semibold block flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  Form Security Warning
+                </span>
+                {activeResult.sensitive_input_audit.warnings.map((w, idx) => (
+                  <p key={idx}>• {w}</p>
+                ))}
+              </div>
+            )}
+
+            <div className="text-[10px] text-[#737373] pt-1">
+              Inspection Rule: The presence of a password field on a recognized bank or service is normal. Concern is raised when credential fields coincide with newly registered domains, external form submission destinations, or unencrypted HTTP transport. Actual credentials are never solicited or recorded.
+            </div>
+          </Card>
+
+          {/* ================================================================= */}
+          {/* FEATURE 4: Dangerous Download & File Extension Detection Card */}
+          {/* ================================================================= */}
+          <Card className="space-y-4 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+            <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
+              <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+                <FileDown className="h-4 w-4 text-[#737373]" />
+                Download Safety &amp; File Extension Detection
+              </h3>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
+                  activeResult.download_safety?.mismatch_detected
+                    ? 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+                    : activeResult.download_safety?.is_download
+                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                    : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                }`}
+              >
+                {activeResult.download_safety?.is_download ? 'File Download Detected' : 'Webpage (No Download)'}
+              </span>
+            </div>
+
+            {/* Explanation box */}
+            <div className="rounded-lg bg-[#FAFAFA] dark:bg-[#111111] border border-[#E5E5E5] dark:border-[#262626] p-3 text-xs space-y-1">
+              <p className="font-medium text-[#737373] text-[11px] uppercase tracking-wider">
+                Payload Inspection Assessment
+              </p>
+              <p className="text-[#111111] dark:text-[#FFFFFF] leading-relaxed">
+                {activeResult.download_safety?.explanation || 'Target returns a standard HTML webpage. No file download was initiated.'}
+              </p>
+            </div>
+
+            {/* Disguise / Mismatch Warning */}
+            {activeResult.download_safety?.warning && (
+              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-xs text-red-800 dark:text-red-200 flex items-start gap-2.5">
+                <AlertOctagon className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Disguised Payload Warning</span>
+                  <span>{activeResult.download_safety.warning}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Download Details Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Reported Filename</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1 font-mono truncate">
+                  {activeResult.download_safety?.server_reported_filename || 'None (Webpage)'}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5">Content-Disposition header</span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Effective Extension</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1 font-mono">
+                  {activeResult.download_safety?.effective_extension || (activeResult.download_safety?.is_download ? 'None' : '.html')}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5">
+                  {activeResult.download_safety?.has_double_extension ? (
+                    <span className="text-red-500 font-bold">Double Extension!</span>
+                  ) : (
+                    'Single extension format'
+                  )}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Server MIME Type</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1 font-mono truncate">
+                  {activeResult.download_safety?.mime_type || activeResult.redirect_analysis?.content_type || 'text/html'}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5">Declared Content-Type</span>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111]">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Magic Byte Signature</span>
+                <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block mt-1 truncate">
+                  {activeResult.download_safety?.magic_byte_signature || 'HTML Webpage Content'}
+                </span>
+                <span className="text-[10px] text-[#737373] block mt-0.5">Prefix byte evaluation</span>
+              </div>
+            </div>
+
+            <div className="text-[10px] text-[#737373] pt-1">
+              Safety Boundary: Scanned files are never executed, decompressed, or downloaded to user devices. Evaluation is strictly confined to response headers and an initial 1 KB buffer.
+            </div>
+          </Card>
+
+          {/* ================================================================= */}
+          {/* FEATURE 5: Hosting Provider and Infrastructure Footprint Card */}
+          {/* ================================================================= */}
+          <Card className="space-y-4 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+            <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
+              <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+                <Server className="h-4 w-4 text-[#737373]" />
+                Hosting Provider &amp; Infrastructure Footprint
+              </h3>
+              <span className="text-[10px] bg-[#FAFAFA] dark:bg-[#262626] text-[#737373] border border-[#E5E5E5] dark:border-[#262626] px-2 py-0.5 rounded">
+                Network Telemetry
+              </span>
+            </div>
+
+            {/* Footprint Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] space-y-1">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block flex items-center gap-1">
+                  <Building2 className="h-3 w-3" /> Hosting Organization &amp; ISP
+                </span>
+                <p className="font-semibold text-[#111111] dark:text-[#FFFFFF] truncate">
+                  {activeResult.hosting_footprint?.organization || activeResult.hosting_intelligence?.organization || 'Cloud Hosting Provider'}
+                </p>
+                <p className="text-[11px] text-[#737373] truncate">
+                  ISP: {activeResult.hosting_footprint?.isp || activeResult.hosting_intelligence?.isp || 'Internet Service Provider'}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] space-y-1">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block flex items-center gap-1">
+                  <Network className="h-3 w-3" /> ASN &amp; Autonomous System
+                </span>
+                <p className="font-semibold text-[#111111] dark:text-[#FFFFFF] truncate">
+                  {activeResult.hosting_footprint?.asn || activeResult.hosting_intelligence?.asn || 'BGP Autonomous System'}
+                </p>
+                <p className="text-[11px] text-[#737373]">
+                  {activeResult.hosting_footprint?.is_cloud_or_cdn ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">Edge / CDN Network</span>
+                  ) : (
+                    'Dedicated / Datacenter IP'
+                  )}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] space-y-1">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block flex items-center gap-1">
+                  <Globe className="h-3 w-3" /> IP Address &amp; Reverse DNS
+                </span>
+                <p className="font-semibold text-[#111111] dark:text-[#FFFFFF] font-mono truncate">
+                  {activeResult.hosting_footprint?.ip_address || activeResult.domainInfo.ipAddress}
+                </p>
+                <p className="text-[11px] text-[#737373] font-mono truncate">
+                  PTR: {activeResult.hosting_footprint?.reverse_dns || 'No reverse PTR record'}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] space-y-1">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">Approximate Geolocation</span>
+                <p className="font-semibold text-[#111111] dark:text-[#FFFFFF] truncate">
+                  {activeResult.hosting_footprint?.country
+                    ? `${activeResult.hosting_footprint.city ? activeResult.hosting_footprint.city + ', ' : ''}${activeResult.hosting_footprint.country}`
+                    : activeResult.domainInfo.location}
+                </p>
+                <p className="text-[10px] text-[#737373]">Network edge routing location</p>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] space-y-1">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Domain Age (ICANN RDAP)
+                </span>
+                <p className="font-semibold text-[#111111] dark:text-[#FFFFFF] truncate">
+                  {typeof activeResult.domain_registration?.domain_age_days === 'number' && activeResult.domain_registration.domain_age_days >= 0
+                    ? `${activeResult.domain_registration.domain_age_days} days old`
+                    : activeResult.domainInfo.registeredDaysAgo >= 0
+                    ? `${activeResult.domainInfo.registeredDaysAgo} days old`
+                    : 'Not available'}
+                </p>
+                <p className="text-[10px] text-[#737373] truncate">
+                  Registrar: {activeResult.domain_registration?.registrar || activeResult.domainInfo.registrar}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FFFFFF] dark:bg-[#111111] space-y-1">
+                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">CDN / Proxy Indicator</span>
+                <p className="font-semibold text-[#111111] dark:text-[#FFFFFF] truncate">
+                  {activeResult.hosting_footprint?.cdn_provider || (activeResult.hosting_footprint?.is_cloud_or_cdn ? 'Cloud Edge Proxy' : 'Direct Origin Host')}
+                </p>
+                <p className="text-[10px] text-[#737373]">
+                  Source: {activeResult.hosting_footprint?.data_provider || 'Network Intelligence'}
+                </p>
+              </div>
+            </div>
+
+            {/* Contextual Note */}
+            <div className="rounded-lg bg-[#FAFAFA] dark:bg-[#111111] border border-[#E5E5E5] dark:border-[#262626] p-3 text-xs text-[#737373] space-y-1">
+              <span className="font-semibold text-[#111111] dark:text-[#FFFFFF] block">Footprint Analysis Interpretation:</span>
+              <p className="leading-relaxed">
+                Hosting on AWS, Google Cloud, Microsoft Azure, a budget provider, or a CDN does not independently establish trustworthiness or malicious intent. Geolocation reflects network edge routing points rather than the website owner&apos;s physical street address.
+              </p>
+            </div>
+          </Card>
+
+          {/* ================================================================= */}
+          {/* FEATURE 6: Trustworthy Agency and Security Authority Audit Card */}
+          {/* ================================================================= */}
+          <Card className="space-y-4 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+            <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
+              <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+                <CheckSquare className="h-4 w-4 text-[#737373]" />
+                Security Authority Audit Checklist
+              </h3>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded font-medium border ${
+                  (activeResult.security_authority_checklist?.threats_reported_count || 0) > 0
+                    ? 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+                    : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                }`}
+              >
+                {(activeResult.security_authority_checklist?.threats_reported_count || 0) > 0
+                  ? `${activeResult.security_authority_checklist?.threats_reported_count} Threat(s) Reported`
+                  : 'Checklist Clean'}
+              </span>
+            </div>
+
+            {/* Checklist summary banner */}
+            <div className="rounded-lg bg-[#FAFAFA] dark:bg-[#111111] border border-[#E5E5E5] dark:border-[#262626] p-3 text-xs text-[#111111] dark:text-[#FFFFFF] space-y-1">
+              <p className="font-medium text-[#737373] text-[11px] uppercase tracking-wider">
+                Authority Cross-Check Status
+              </p>
+              <p className="leading-relaxed font-semibold">
+                {activeResult.security_authority_checklist?.summary ||
+                  'No security authorities reported an active threat against this destination.'}
+              </p>
+            </div>
+
+            {/* Authority Checklist Table */}
+            <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] overflow-hidden text-xs">
+              <div className="grid grid-cols-12 bg-[#FAFAFA] dark:bg-[#111111] px-3 py-2 font-semibold text-[10px] uppercase text-[#737373] border-b border-[#E5E5E5] dark:border-[#262626]">
+                <div className="col-span-4 sm:col-span-3">Authority / Feed</div>
+                <div className="col-span-3 sm:col-span-2">Target</div>
+                <div className="col-span-5 sm:col-span-3">Check Status</div>
+                <div className="hidden sm:block sm:col-span-4">Verified Evidence</div>
+              </div>
+
+              <div className="divide-y divide-[#E5E5E5] dark:divide-[#262626]">
+                {activeResult.security_authority_checklist?.items &&
+                activeResult.security_authority_checklist.items.length > 0 ? (
+                  activeResult.security_authority_checklist.items.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-12 px-3 py-2.5 items-center hover:bg-[#FAFAFA] dark:hover:bg-[#111111]/60 transition-colors">
+                      <div className="col-span-4 sm:col-span-3 font-semibold text-[#111111] dark:text-[#FFFFFF] truncate">
+                        {item.authority_name}
+                      </div>
+
+                      <div className="col-span-3 sm:col-span-2 text-[11px] text-[#737373]">
+                        {item.target_checked}
+                      </div>
+
+                      <div className="col-span-5 sm:col-span-3">
+                        {item.status === 'threat_reported' && (
+                          <span className="text-[10px] text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-2 py-0.5 rounded font-medium">
+                            Threat Reported
+                          </span>
+                        )}
+                        {item.status === 'no_threat_reported' && (
+                          <span className="text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded font-medium">
+                            {item.verdict_label || 'No Detection'}
+                          </span>
+                        )}
+                        {item.status === 'not_configured' && (
+                          <span className="text-[10px] text-[#737373] bg-[#FAFAFA] dark:bg-[#262626] border border-[#E5E5E5] dark:border-[#262626] px-2 py-0.5 rounded">
+                            Not Configured
+                          </span>
+                        )}
+                        {item.status === 'check_unavailable' && (
+                          <span className="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded">
+                            Check Unavailable
+                          </span>
+                        )}
+                        {item.status === 'not_applicable' && (
+                          <span className="text-[10px] text-[#737373] bg-[#FAFAFA] dark:bg-[#262626] border border-[#E5E5E5] dark:border-[#262626] px-2 py-0.5 rounded">
+                            Not Applicable
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="hidden sm:block sm:col-span-4 text-[11px] text-[#737373] truncate">
+                        {item.evidence_summary}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-4 text-center text-xs text-[#737373] italic">
+                    Authority checklist not generated for this scan.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="text-[10px] text-[#737373] pt-1">
+              Ethical Disclosure: Cyclops does not fabricate certifications, endorsements, or law enforcement investigations. A clean check from automated threat databases indicates the target has not yet been indexed as malicious; it is not an official government determination of safety.
+            </div>
+          </Card>
+
+          {/* Destination & Normalization Details */}
+          {activeResult.normalization && (
+            <Card className="space-y-3 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+              <h3 className="text-xs font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+                <CornerDownRight className="h-4 w-4 text-[#737373]" />
+                Destination &amp; Normalization Analysis
+              </h3>
+              <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#111111] p-3 text-xs space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-[10px] text-[#737373] block">Submitted Input:</span>
+                    <span className="font-mono text-[#111111] dark:text-[#FFFFFF] break-all">{activeResult.normalization.raw_input}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-[#737373] block">Canonical Normalized URL:</span>
+                    <span className="font-mono text-[#111111] dark:text-[#FFFFFF] break-all">{activeResult.normalization.normalized_url}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#E5E5E5] dark:border-[#262626] text-[11px]">
+                  <div>
+                    <span className="text-[#737373] block">Hostname:</span>
+                    <span className="font-semibold text-[#111111] dark:text-[#FFFFFF]">{activeResult.normalization.ascii_hostname}</span>
+                  </div>
+                  <div>
+                    <span className="text-[#737373] block">Host Format:</span>
+                    <span className="font-semibold text-[#111111] dark:text-[#FFFFFF]">
+                      {activeResult.normalization.is_ip ? `Raw IPv${activeResult.normalization.ip_version}` : 'Domain Name'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#737373] block">Punycode / IDN:</span>
+                    <span className="font-semibold text-[#111111] dark:text-[#FFFFFF]">
+                      {activeResult.normalization.is_punycode ? 'Yes (Punycode)' : 'Standard ASCII'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[#737373] block">Port:</span>
+                    <span className="font-semibold text-[#111111] dark:text-[#FFFFFF]">
+                      {activeResult.normalization.port || (activeResult.normalization.scheme === 'https' ? '443 (default)' : '80 (default)')}
+                    </span>
+                  </div>
+                </div>
+
+                {activeResult.normalization.has_homograph_chars && (
+                  <div className="p-2 rounded bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-300 text-xs flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">Homograph Risk Detected: </span>
+                      <span>Target contains lookalike Unicode characters mimicking Latin letters.</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* Redirect-Hop Timeline */}
+          <Card className="space-y-3 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
+            <h3 className="text-xs font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+              <Layers className="h-4 w-4 text-[#737373]" />
+              Redirect-Hop Timeline
+            </h3>
+            {activeResult.redirect_analysis && activeResult.redirect_analysis.redirect_chain.length > 0 ? (
+              <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#111111] p-3 space-y-3">
+                <div className="space-y-2 text-xs">
+                  {activeResult.redirect_analysis.redirect_chain.map((hop) => (
+                    <div key={hop.hop_number} className="flex items-start gap-3 pl-1">
+                      <div className="flex flex-col items-center">
+                        <span className="h-5 w-5 rounded-full bg-[#E5E5E5] dark:bg-[#262626] flex items-center justify-center text-[10px] font-bold text-[#111111] dark:text-[#FFFFFF]">
+                          {hop.hop_number}
+                        </span>
+                        <span className="w-0.5 h-6 bg-[#E5E5E5] dark:bg-[#262626] mt-1"></span>
+                      </div>
+                      <div className="flex-1 pb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-semibold text-[#111111] dark:text-[#FFFFFF] text-xs">{hop.url}</span>
+                          <span className="text-[10px] bg-[#E5E5E5] dark:bg-[#262626] px-1.5 py-0.5 rounded text-[#737373]">
+                            HTTP {hop.status_code}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-[#737373] mt-0.5 flex gap-3">
+                          <span>IP: {hop.resolved_ip}</span>
+                          {hop.hostname_changed && <span className="text-amber-500 font-medium">Cross-domain change</span>}
+                          {hop.scheme_downgraded && <span className="text-red-500 font-medium">HTTPS to HTTP downgrade</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {/* Final Destination */}
+                  <div className="flex items-start gap-3 pl-1">
+                    <div className="flex flex-col items-center">
+                      <span className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-[10px] font-bold">
+                        ✓
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <span className="text-[10px] text-[#737373] block">Final Destination:</span>
+                      <span className="font-mono font-bold text-[#111111] dark:text-[#FFFFFF] text-xs break-all">
+                        {activeResult.redirect_analysis.final_url}
+                      </span>
+                      <div className="text-[11px] text-[#737373] mt-0.5">
+                        Status: HTTP {activeResult.redirect_analysis.final_status_code || 200} • IP: {activeResult.redirect_analysis.final_resolved_ip || 'Resolved'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#111111] p-3 text-xs text-[#737373] flex items-center justify-between">
+                <span>No HTTP redirect hops observed. Target responded directly without forwarding.</span>
+                <span className="text-[11px] font-mono text-[#737373]">1 Hop Direct</span>
+              </div>
+            )}
+          </Card>
+
+          {/* Diagnostic Log */}
+          <div className="border-t border-[#E5E5E5] dark:border-[#262626] pt-3">
+            <button
+              type="button"
+              onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#737373] hover:text-[#111111] dark:hover:text-[#FFFFFF] transition-colors"
+            >
+              {showTechnicalDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              {showTechnicalDetails ? 'Hide Raw Technical Telemetry' : 'View Raw Technical Telemetry & Diagnostic Data'}
+            </button>
+
+            {showTechnicalDetails && (
+              <div className="mt-3 rounded-lg bg-[#111111] border border-[#262626] p-4 font-mono text-[11px] text-[#FFFFFF] overflow-x-auto space-y-2">
+                <p className="text-[#737373]">{`// Cyclops Technical Diagnostic Log`}</p>
+                <div>Scan ID: {activeResult.id}</div>
+                <div>Submitted URL: {activeResult.url}</div>
+                <div>Verdict: {activeResult.verdict}</div>
+                <div>Threat Score: {activeResult.threat_score ?? (activeResult.riskScore / 10)}</div>
+                {activeResult.missing_data_notes && activeResult.missing_data_notes.length > 0 && (
+                  <div className="pt-2 text-amber-400">
+                    [Data Caveats / Unconfigured Integrations]:
+                    {activeResult.missing_data_notes.map((m, i) => (
+                      <div key={i} className="pl-3 text-zinc-400">
+                        - {m}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {activeResult.signals && activeResult.signals.length > 0 && (
+                  <div className="pt-2">
+                    [Signals Fired]:
+                    {activeResult.signals.map((sig, i) => (
+                      <div key={i} className="pl-3 text-zinc-400">
+                        [{sig.severity.toUpperCase()}] {sig.id} (weight {sig.weight}): {sig.title}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* Recent URL Scans History Table */}
       <Card className="space-y-4" interactive={false}>
-        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <History className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+        <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
+          <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
+            <History className="h-4 w-4 text-[#737373]" />
             Recent Scan History
           </h3>
-          <span className="text-xs text-zinc-500">{urlScans.length} scans total</span>
+          <span className="text-xs text-[#737373]">{urlScans.length} scans total</span>
         </div>
 
-        <div className="divide-y divide-zinc-200 dark:divide-zinc-800/60">
+        <div className="divide-y divide-[#E5E5E5] dark:divide-[#262626]">
           {urlScans.map((scan) => (
             <div
               key={scan.id}
               onClick={() => setActiveResult(scan)}
-              className="flex items-center justify-between py-2.5 px-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/40 cursor-pointer transition-colors"
+              className="flex items-center justify-between py-2.5 px-2 rounded-lg hover:bg-[#FAFAFA] dark:hover:bg-[#262626] cursor-pointer transition-colors"
             >
               <div className="min-w-0 pr-4">
-                <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-200 truncate font-mono">{scan.url}</p>
-                <p className="text-[11px] text-zinc-500">
+                <p className="text-xs font-semibold text-[#111111] dark:text-[#FFFFFF] truncate font-mono">{scan.url}</p>
+                <p className="text-[11px] text-[#737373]">
                   {scan.domainInfo.domain} • {scan.domainInfo.location}
                   {scan.isLiveScan && ' • (Live API)'}
                 </p>
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <Badge level={scan.riskLevel}>{scan.verdict}</Badge>
-                <span className="text-[10px] text-zinc-500">{scan.timestamp}</span>
+                <span className="text-[10px] text-[#737373]">{scan.timestamp}</span>
               </div>
             </div>
           ))}

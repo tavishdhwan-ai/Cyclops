@@ -193,6 +193,10 @@ export const mockUrlScans: UrlScanResult[] = [
     verdict: 'phishing',
     riskLevel: 'critical',
     riskScore: 94,
+    threat_score: 9.4,
+    summary: '[Simulated Demo Fixture] Phishing landing page soliciting employee credentials on an untrusted newly registered host.',
+    plain_english_explanation: 'Risk indicators identified: Form inputs submit data across origins to a third-party host; Password entry requested on a recently registered domain (3 days old); Flagged by abuse.ch URLhaus threat feed.',
+    recommendedAction: 'Block domain immediately across all employee web browsers and DNS resolvers.',
     domainInfo: {
       domain: 'login-verify-acme-update.com',
       registrar: 'NameCheap Inc.',
@@ -205,10 +209,179 @@ export const mockUrlScans: UrlScanResult[] = [
     suspiciousSignals: [
       'Targeted typosquatting against internal portal',
       'Domain registered 3 days ago',
-      'HTML DOM contains cloned login input fields',
-      'Host IP flagged in threat intelligence feeds',
+      'HTML DOM contains password input with cross-origin POST action',
+      'Host flagged in URLhaus threat intelligence database',
     ],
-    recommendedAction: 'Block domain immediately across all employee web browsers and DNS resolvers.',
+    reassuring_factors: ['Valid TLS certificate issued by Let\'s Encrypt matching hostname.'],
+    risk_factors: [
+      'Cross-origin password form submits credentials to external endpoint',
+      'Domain registered 3 days ago',
+      'Host flagged as phishing by threat intelligence feeds'
+    ],
+    ssl_certificate: {
+      hostname: 'login-verify-acme-update.com',
+      port: 443,
+      status: 'valid',
+      connection_status: 'HTTPS (TLS Encrypted)',
+      is_valid: true,
+      is_public_ca: true,
+      issuer: "Let's Encrypt",
+      subject: 'login-verify-acme-update.com',
+      subject_alt_names: ['login-verify-acme-update.com', 'www.login-verify-acme-update.com'],
+      valid_from: '2026-03-01 00:00:00 UTC',
+      valid_until: '2026-05-30 23:59:59 UTC',
+      days_remaining: 85,
+      hostname_match: true,
+      certificate_chain_status: 'valid_trusted',
+      tls_version: 'TLSv1.3',
+      cipher_suite: 'TLS_AES_256_GCM_SHA384',
+      plain_language_explanation: 'HTTPS encrypts your connection, but it does not guarantee that this website is legitimate. Automated free DV certificates are standard and do not verify the legal identity of the website owner.',
+      warnings: ['Domain is 3 days old; a valid certificate does not establish business legitimacy.'],
+      limitations: ['Domain validation confirms domain control, not legal ownership.']
+    },
+    sensitive_input_audit: {
+      password_fields_detected: 1,
+      email_login_fields_detected: 1,
+      payment_fields_detected: 0,
+      form_submission_destinations: ['https://auth-harvester-collect.ru/steal'],
+      cross_origin_submission_detected: true,
+      cross_origin_details: ['Form action transmits credentials to external domain auth-harvester-collect.ru'],
+      submits_over_insecure_http: false,
+      is_https_page: true,
+      evidence_based_explanation: 'This page contains a password field. We could not independently establish that the website is trustworthy. Form inputs are transmitted to an external destination.',
+      warnings: ['Cross-origin form action detected: password is submitted to an external third-party domain.'],
+      contextual_notes: ['Credentials submitted across different domains are characteristic of credential harvesters.']
+    },
+    download_safety: {
+      is_download: false,
+      detected_format: 'HTML Webpage',
+      mime_type: 'text/html; charset=utf-8',
+      magic_byte_signature: 'HTML Webpage Content',
+      has_double_extension: false,
+      is_executable_or_script: false,
+      mismatch_detected: false,
+      explanation: 'Target returns standard HTML webpage markup. No file download was initiated.',
+      inspection_limitations: ['Inspected initial response headers and static markup only; client scripts were not executed.']
+    },
+    hosting_footprint: {
+      ip_address: '198.54.117.210',
+      hostname: 'Frankfurt',
+      reverse_dns: 'host210.datacenter-frankfurt.net',
+      country: 'Germany',
+      country_code: 'DE',
+      region: 'Hesse',
+      city: 'Frankfurt am Main',
+      asn: 'AS22612 Namecheap, Inc.',
+      organization: 'Namecheap Hosting',
+      isp: 'Namecheap, Inc.',
+      is_cloud_or_cdn: false,
+      is_shared_hosting: true,
+      contextual_note: 'Hosted on budget shared hosting infrastructure. Reverse proxies or shared hosts often host thousands of unrelated domains.',
+      footprint_summary: 'Namecheap Hosting (AS22612) in Frankfurt am Main, Germany',
+      data_provider: 'IP-API Network Intelligence',
+      lookup_timestamp: '2026-03-05 14:10:00 UTC',
+      status: 'live'
+    },
+    reputation_providers: [
+      {
+        provider_name: 'abuse.ch URLhaus',
+        category: 'url_reputation',
+        status: 'malicious_found',
+        is_malicious: true,
+        detection_category: 'Malware / Phishing Distribution',
+        threat_details: 'Target URL listed as active phishing credential collector.',
+        timestamp: '2026-03-05 14:00:00 UTC',
+        reference_url: 'https://urlhaus.abuse.ch/'
+      },
+      {
+        provider_name: 'Google Safe Browsing',
+        category: 'url_reputation',
+        status: 'not_configured',
+        error_message: 'API key not configured in backend environment (GOOGLE_SAFE_BROWSING_API_KEY).'
+      },
+      {
+        provider_name: 'VirusTotal',
+        category: 'url_reputation',
+        status: 'not_configured',
+        error_message: 'API key not configured in backend environment (VIRUSTOTAL_API_KEY).'
+      },
+      {
+        provider_name: 'AbuseIPDB',
+        category: 'ip_reputation',
+        status: 'not_configured',
+        error_message: 'API key not configured in backend environment (ABUSEIPDB_API_KEY).'
+      }
+    ],
+    security_authority_checklist: {
+      items: [
+        {
+          authority_name: 'abuse.ch URLhaus',
+          target_checked: 'URL',
+          check_type: 'Malware & Phishing Threat Intelligence',
+          status: 'threat_reported',
+          verdict_label: 'Threat Reported',
+          evidence_summary: 'Listed in abuse.ch URLhaus database as active phishing collector.',
+          last_checked: '2026-03-05 14:00:00 UTC',
+          queried_successfully: true
+        },
+        {
+          authority_name: 'Google Safe Browsing',
+          target_checked: 'URL',
+          check_type: 'Social Engineering & Malware Feed',
+          status: 'not_configured',
+          verdict_label: 'Not Configured',
+          evidence_summary: 'Optional API key not set in environment.',
+          last_checked: '2026-03-05 14:10:00 UTC',
+          queried_successfully: false
+        },
+        {
+          authority_name: 'VirusTotal Intelligence',
+          target_checked: 'URL',
+          check_type: 'Multi-Engine Aggregator Feed',
+          status: 'not_configured',
+          verdict_label: 'Not Configured',
+          evidence_summary: 'Optional API key not set in environment.',
+          last_checked: '2026-03-05 14:10:00 UTC',
+          queried_successfully: false
+        },
+        {
+          authority_name: 'AbuseIPDB Threat Intelligence',
+          target_checked: 'IP Address',
+          check_type: 'IP Abuse & Threat Database',
+          status: 'not_configured',
+          verdict_label: 'Not Configured',
+          evidence_summary: 'Optional API key not set in environment.',
+          last_checked: '2026-03-05 14:10:00 UTC',
+          queried_successfully: false
+        },
+        {
+          authority_name: 'TLS Certificate Authority Trust Store',
+          target_checked: 'TLS Certificate',
+          check_type: 'Cryptographic Trust Chain & Hostname Validation',
+          status: 'no_threat_reported',
+          verdict_label: 'Valid & Trusted',
+          evidence_summary: "Issued by recognized public CA (Let's Encrypt); matches requested hostname.",
+          last_checked: '2026-03-05 14:10:00 UTC',
+          queried_successfully: true
+        },
+        {
+          authority_name: 'ICANN / Regional Internet Registries (RDAP)',
+          target_checked: 'Domain Registration',
+          check_type: 'Authoritative Domain Registration & Age Verification',
+          status: 'no_threat_reported',
+          verdict_label: 'Warning: Recently Registered',
+          evidence_summary: 'Domain registered 3 days ago via NameCheap Inc. (ICANN RDAP).',
+          last_checked: '2026-03-05 14:10:00 UTC',
+          queried_successfully: true
+        }
+      ],
+      threats_reported_count: 1,
+      clean_verdicts_count: 2,
+      unconfigured_count: 3,
+      unavailable_count: 0,
+      summary: 'Threat indicators reported across 1 verified threat intelligence source.',
+      disclaimer: 'An absence of reported detections does not guarantee that a website is safe. Threat intelligence databases only track previously identified malicious infrastructure.'
+    }
   },
   {
     id: 'url-2',
@@ -217,6 +390,10 @@ export const mockUrlScans: UrlScanResult[] = [
     verdict: 'safe',
     riskLevel: 'safe',
     riskScore: 4,
+    threat_score: 0.4,
+    summary: '[Simulated Demo Fixture] Established public cloud document property on official Google infrastructure.',
+    plain_english_explanation: 'Reassuring evidence: Valid TLS certificate issued by Google Trust Services matching hostname; Domain is well-established (27+ years old). No threat indicators reported by abuse.ch URLhaus.',
+    recommendedAction: 'Safe to access. Official Google Drive infrastructure.',
     domainInfo: {
       domain: 'google.com',
       registrar: 'MarkMonitor Inc.',
@@ -227,15 +404,140 @@ export const mockUrlScans: UrlScanResult[] = [
       sslIssuer: 'GTS CA 1C3',
     },
     suspiciousSignals: [],
-    recommendedAction: 'Safe to access. Official Google Drive infrastructure.',
+    reassuring_factors: [
+      'Valid TLS certificate issued by Google Trust Services',
+      'Domain registered in 1997 (> 27 years old)',
+      'Clean report across available reputation databases'
+    ],
+    risk_factors: [],
+    ssl_certificate: {
+      hostname: 'docs.google.com',
+      port: 443,
+      status: 'valid',
+      connection_status: 'HTTPS (TLS Encrypted)',
+      is_valid: true,
+      is_public_ca: true,
+      issuer: 'Google Trust Services (GTS CA 1C3)',
+      subject: '*.google.com',
+      subject_alt_names: ['*.google.com', 'google.com'],
+      valid_from: '2026-01-15 00:00:00 UTC',
+      valid_until: '2026-04-15 23:59:59 UTC',
+      days_remaining: 41,
+      hostname_match: true,
+      certificate_chain_status: 'valid_trusted',
+      tls_version: 'TLSv1.3',
+      cipher_suite: 'TLS_AES_128_GCM_SHA256',
+      plain_language_explanation: 'HTTPS encrypts your connection, but it does not guarantee that this website is legitimate. The certificate was issued by Google Trust Services and matches *.google.com.',
+      warnings: [],
+      limitations: ['A valid TLS certificate does not establish that documents hosted inside a cloud platform are safe.']
+    },
+    sensitive_input_audit: {
+      password_fields_detected: 0,
+      email_login_fields_detected: 0,
+      payment_fields_detected: 0,
+      form_submission_destinations: [],
+      cross_origin_submission_detected: false,
+      cross_origin_details: [],
+      submits_over_insecure_http: false,
+      is_https_page: true,
+      evidence_based_explanation: 'No password, login credential, or payment card input fields were detected in static HTML.',
+      warnings: [],
+      contextual_notes: ['Document view page without exposed credential inputs.']
+    },
+    download_safety: {
+      is_download: false,
+      detected_format: 'HTML Webpage',
+      mime_type: 'text/html; charset=utf-8',
+      magic_byte_signature: 'HTML Webpage Content',
+      has_double_extension: false,
+      is_executable_or_script: false,
+      mismatch_detected: false,
+      explanation: 'Target returns standard HTML webpage content. No file download was initiated.',
+      inspection_limitations: ['Inspected static response headers only.']
+    },
+    hosting_footprint: {
+      ip_address: '142.250.190.46',
+      hostname: 'Mountain View',
+      reverse_dns: 'sfo03s18-in-f14.1e100.net',
+      country: 'United States',
+      country_code: 'US',
+      region: 'California',
+      city: 'Mountain View',
+      asn: 'AS15169 GOOGLE',
+      organization: 'Google LLC',
+      isp: 'Google LLC',
+      is_cloud_or_cdn: true,
+      cdn_provider: 'Google Cloud Platform',
+      is_shared_hosting: true,
+      contextual_note: 'Hosted on Google Cloud Platform global edge network. Server geolocation reflects anycast routing.',
+      footprint_summary: 'Google LLC (AS15169) in Mountain View, California',
+      data_provider: 'IP-API Network Intelligence',
+      lookup_timestamp: '2026-03-05 13:00:00 UTC',
+      status: 'live'
+    },
+    reputation_providers: [
+      {
+        provider_name: 'abuse.ch URLhaus',
+        category: 'url_reputation',
+        status: 'clean',
+        is_malicious: false,
+        threat_details: 'URL not listed in abuse.ch URLhaus malware database.',
+        timestamp: '2026-03-05 13:00:00 UTC',
+        reference_url: 'https://urlhaus.abuse.ch/'
+      }
+    ],
+    security_authority_checklist: {
+      items: [
+        {
+          authority_name: 'abuse.ch URLhaus',
+          target_checked: 'URL',
+          check_type: 'Malware & Phishing Threat Intelligence',
+          status: 'no_threat_reported',
+          verdict_label: 'No Detection',
+          evidence_summary: 'URL not listed in abuse.ch URLhaus malware database.',
+          last_checked: '2026-03-05 13:00:00 UTC',
+          queried_successfully: true
+        },
+        {
+          authority_name: 'TLS Certificate Authority Trust Store',
+          target_checked: 'TLS Certificate',
+          check_type: 'Cryptographic Trust Chain & Hostname Validation',
+          status: 'no_threat_reported',
+          verdict_label: 'Valid & Trusted',
+          evidence_summary: 'Issued by Google Trust Services; matches requested hostname.',
+          last_checked: '2026-03-05 13:00:00 UTC',
+          queried_successfully: true
+        },
+        {
+          authority_name: 'ICANN / Regional Internet Registries (RDAP)',
+          target_checked: 'Domain Registration',
+          check_type: 'Authoritative Domain Registration & Age Verification',
+          status: 'no_threat_reported',
+          verdict_label: 'Verified Domain Age',
+          evidence_summary: 'Registered 9850 days ago via MarkMonitor Inc. (ICANN RDAP).',
+          last_checked: '2026-03-05 13:00:00 UTC',
+          queried_successfully: true
+        }
+      ],
+      threats_reported_count: 0,
+      clean_verdicts_count: 3,
+      unconfigured_count: 0,
+      unavailable_count: 0,
+      summary: 'No threat detections reported across 3 successfully queried authority source(s).',
+      disclaimer: 'An absence of reported detections does not guarantee that a website is safe. Threat intelligence databases only track previously identified malicious infrastructure.'
+    }
   },
   {
     id: 'url-3',
-    url: 'http://cdn-update-software-fix.ru/patch.bin',
+    url: 'http://cdn-update-software-fix.ru/downloads/invoice.pdf.exe',
     timestamp: '3 hours ago',
     verdict: 'malicious',
     riskLevel: 'critical',
     riskScore: 98,
+    threat_score: 9.8,
+    summary: '[Simulated Demo Fixture] Deceptive disguised executable download (.pdf.exe) delivered over unencrypted plain HTTP.',
+    plain_english_explanation: 'Risk indicators identified: Disguised double file extension detected: invoice.pdf.exe; The server reports an executable file although its name resembles a PDF; Unencrypted HTTP in use (no TLS certificate).',
+    recommendedAction: 'Quarantine endpoint device and block host URL network traffic.',
     domainInfo: {
       domain: 'cdn-update-software-fix.ru',
       registrar: 'Reg.ru LLC',
@@ -247,31 +549,135 @@ export const mockUrlScans: UrlScanResult[] = [
     },
     suspiciousSignals: [
       'Unencrypted plain HTTP file download link',
-      'Direct executable binary payload (.bin)',
-      'High severity score on 18 antivirus engines',
-      'Unregistered self-hosted server IP',
+      'Deceptive double extension: invoice.pdf.exe',
+      'Magic bytes match Windows PE Executable (MZ header)',
+      'Domain registered 1 day ago',
     ],
-    recommendedAction: 'Quarantine endpoint device and block host URL network traffic.',
-  },
-  {
-    id: 'url-4',
-    url: 'https://app.slack.com/client/T024F/C024G',
-    timestamp: '6 hours ago',
-    verdict: 'safe',
-    riskLevel: 'safe',
-    riskScore: 2,
-    domainInfo: {
-      domain: 'slack.com',
-      registrar: 'MarkMonitor Inc.',
-      registeredDaysAgo: 4500,
-      ipAddress: '54.210.15.112',
-      location: 'Ashburn, US',
-      sslValid: true,
-      sslIssuer: 'DigiCert TLS RSA SHA256',
+    risk_factors: [
+      'Executable payload disguised as a document (invoice.pdf.exe)',
+      'Unencrypted HTTP protocol',
+      'Newly registered 1-day-old domain'
+    ],
+    reassuring_factors: [],
+    ssl_certificate: {
+      hostname: 'cdn-update-software-fix.ru',
+      port: 80,
+      status: 'unencrypted_http',
+      connection_status: 'HTTP (Unencrypted)',
+      is_valid: false,
+      is_public_ca: false,
+      issuer: 'None (Plaintext HTTP)',
+      subject: 'cdn-update-software-fix.ru',
+      subject_alt_names: [],
+      hostname_match: false,
+      certificate_chain_status: 'none',
+      plain_language_explanation: 'The target site was queried over unencrypted HTTP. Data sent to or from this page can be intercepted or modified in transit.',
+      warnings: ['No TLS encryption in use. Content can be injected or altered in transit by network adversaries.'],
+      limitations: ['Certificate inspection does not apply to plaintext HTTP connections.']
     },
-    suspiciousSignals: [],
-    recommendedAction: 'No threats detected.',
-  },
+    sensitive_input_audit: {
+      password_fields_detected: 0,
+      email_login_fields_detected: 0,
+      payment_fields_detected: 0,
+      form_submission_destinations: [],
+      cross_origin_submission_detected: false,
+      cross_origin_details: [],
+      submits_over_insecure_http: false,
+      is_https_page: false,
+      evidence_based_explanation: 'No HTML forms detected; target delivers a direct file payload.',
+      warnings: [],
+      contextual_notes: []
+    },
+    download_safety: {
+      is_download: true,
+      server_reported_filename: 'invoice.pdf.exe',
+      effective_extension: '.exe',
+      mime_type: 'application/x-msdownload',
+      magic_byte_signature: 'Windows PE Executable / DLL (MZ Header)',
+      detected_format: 'Windows PE Executable',
+      has_double_extension: true,
+      is_executable_or_script: true,
+      mismatch_detected: true,
+      warning: 'The server reports an executable file, although its filename resembles a PDF. Do not open it unless you can verify its origin.',
+      explanation: 'Disguised double file extension detected: invoice.pdf.exe. The file ends in an executable format disguised behind a PDF document extension.',
+      inspection_limitations: [
+        'Analysis performed on response headers and initial 1 KB buffer only.',
+        'File was NOT executed in a dynamic sandbox.',
+        'Payload was NOT downloaded to user device.'
+      ]
+    },
+    hosting_footprint: {
+      ip_address: '185.220.101.9',
+      hostname: 'Moscow',
+      reverse_dns: 'tor-exit.relay-network.org',
+      country: 'Russia',
+      country_code: 'RU',
+      region: 'Moscow',
+      city: 'Moscow',
+      asn: 'AS208294 Independent Network',
+      organization: 'Privacy Proxy Network',
+      isp: 'Privacy Relay',
+      is_cloud_or_cdn: false,
+      is_shared_hosting: false,
+      contextual_note: 'Hosted on anonymized proxy/relay infrastructure. Edge server location does not identify true origin.',
+      footprint_summary: 'Privacy Proxy Network (AS208294) in Moscow, Russia',
+      data_provider: 'IP-API Network Intelligence',
+      lookup_timestamp: '2026-03-05 11:30:00 UTC',
+      status: 'live'
+    },
+    reputation_providers: [
+      {
+        provider_name: 'abuse.ch URLhaus',
+        category: 'url_reputation',
+        status: 'malicious_found',
+        is_malicious: true,
+        detection_category: 'Malware Distribution',
+        threat_details: 'Target URL listed as active RedLine Stealer executable dropper.',
+        timestamp: '2026-03-05 11:00:00 UTC',
+        reference_url: 'https://urlhaus.abuse.ch/'
+      }
+    ],
+    security_authority_checklist: {
+      items: [
+        {
+          authority_name: 'abuse.ch URLhaus',
+          target_checked: 'URL',
+          check_type: 'Malware & Phishing Threat Intelligence',
+          status: 'threat_reported',
+          verdict_label: 'Threat Reported',
+          evidence_summary: 'Listed in abuse.ch URLhaus database as active executable malware payload.',
+          last_checked: '2026-03-05 11:00:00 UTC',
+          queried_successfully: true
+        },
+        {
+          authority_name: 'TLS Certificate Authority Trust Store',
+          target_checked: 'TLS Certificate',
+          check_type: 'Cryptographic Trust Chain & Hostname Validation',
+          status: 'not_applicable',
+          verdict_label: 'Not Applicable (HTTP)',
+          evidence_summary: 'Target uses unencrypted HTTP. No TLS certificate present.',
+          last_checked: '2026-03-05 11:30:00 UTC',
+          queried_successfully: true
+        },
+        {
+          authority_name: 'ICANN / Regional Internet Registries (RDAP)',
+          target_checked: 'Domain Registration',
+          check_type: 'Authoritative Domain Registration & Age Verification',
+          status: 'no_threat_reported',
+          verdict_label: 'Warning: Recently Registered',
+          evidence_summary: 'Domain registered 1 day ago via Reg.ru LLC (ICANN RDAP).',
+          last_checked: '2026-03-05 11:30:00 UTC',
+          queried_successfully: true
+        }
+      ],
+      threats_reported_count: 1,
+      clean_verdicts_count: 1,
+      unconfigured_count: 0,
+      unavailable_count: 0,
+      summary: 'Threat indicators reported across 1 verified threat intelligence source.',
+      disclaimer: 'An absence of reported detections does not guarantee that a website is safe. Threat intelligence databases only track previously identified malicious infrastructure.'
+    }
+  }
 ];
 
 export const mockDocumentScans: DocumentScanResult[] = [

@@ -238,6 +238,11 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
         domain_registration: data.domain_registration,
         page_content: data.page_content,
         reputation_providers: data.reputation_providers || [],
+        ssl_certificate: data.ssl_certificate,
+        sensitive_input_audit: data.sensitive_input_audit,
+        download_safety: data.download_safety,
+        hosting_footprint: data.hosting_footprint || data.hosting_intelligence,
+        security_authority_checklist: data.security_authority_checklist,
         isLiveScan: true,
       };
 

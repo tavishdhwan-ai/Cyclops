@@ -148,6 +148,7 @@ class SafeFetchResult(BaseModel):
     content_type: Optional[str] = None
     html_content: Optional[str] = None
     content_length: int = 0
+    raw_prefix_bytes: Optional[bytes] = None
     headers: Dict[str, str] = Field(default_factory=dict)
     stopped_reason: Optional[str] = None
     tls_version: Optional[str] = None
@@ -294,7 +295,8 @@ async def safe_fetch_url(
                 content_type=content_type,
                 html_content=html_text,
                 content_length=len(raw_bytes),
-                headers={k.lower(): v for k, v in headers_dict.items() if k.lower() in ("server", "content-type", "x-frame-options", "strict-transport-security", "content-security-policy")},
+                raw_prefix_bytes=raw_bytes[:2048],
+                headers={k.lower(): v for k, v in headers_dict.items() if k.lower() in ("server", "content-type", "content-disposition", "content-length", "x-frame-options", "strict-transport-security", "content-security-policy")},
                 stopped_reason="Analysis completed normally."
             )
 

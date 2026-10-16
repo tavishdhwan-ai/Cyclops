@@ -1,14 +1,16 @@
 """
-Passive DNS and Network/Hosting Intelligence for Cyclops URL scanner.
+Passive DNS and Network/Hosting Infrastructure Footprint for Cyclops URL scanner.
+
 Performs:
-- Forward DNS resolution (A, AAAA, MX, TXT, NS records using socket and stdlib)
+- Forward DNS resolution (A, AAAA records using socket and stdlib)
+- Reverse DNS (PTR record lookup via socket.gethostbyaddr)
 - IP Geolocation & ASN lookup via clean documented RDAP/Geo services (ip-api / rdap)
-- Contextual mismatch explanation (CDNs, Cloudflare, AWS vs country)
-- Shared hosting indicators
+- CDN and cloud reverse-proxy identification (Cloudflare, AWS, Fastly, Akamai)
+- Contextual interpretation without arbitrary trust penalties for cloud hosting
 """
 import socket
 import ipaddress
-import urllib.parse
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 import httpx
@@ -23,6 +25,7 @@ class DnsRecord(BaseModel):
 class HostingIntelligence(BaseModel):
     ip_address: str
     hostname: Optional[str] = None
+    reverse_dns: Optional[str] = None
     country: Optional[str] = None
     country_code: Optional[str] = None
     region: Optional[str] = None
@@ -34,9 +37,12 @@ class HostingIntelligence(BaseModel):
     isp: Optional[str] = None
     is_cloud_or_cdn: bool = False
     provider_name: Optional[str] = None
+    cdn_provider: Optional[str] = None
     is_shared_hosting: bool = False
     contextual_note: Optional[str] = None
+    footprint_summary: Optional[str] = None
     data_provider: str = "Unavailable"
+    lookup_timestamp: Optional[str] = None
     status: str = "unknown"  # "live", "cached", "unavailable", "skipped"
 
 
@@ -48,11 +54,26 @@ class DnsIntelligence(BaseModel):
     error: Optional[str] = None
 
 
-# Known CDN / Cloud hosting ASN or Org keywords
-CLOUD_CDN_SIGNATURES = [
-    "cloudflare", "amazon", "aws", "google", "fastly", "akamai",
-    "microsoft", "azure", "digitalocean", "ovh", "hetzner", "linode"
-]
+# Known CDN / Cloud hosting ASN or Org keywords and human-readable names
+CLOUD_CDN_PROVIDERS = {
+    "cloudflare": "Cloudflare Edge",
+    "amazon": "Amazon Web Services (AWS)",
+    "aws": "Amazon Web Services (AWS)",
+    "cloudfront": "Amazon CloudFront CDN",
+    "google": "Google Cloud Platform",
+    "fastly": "Fastly CDN",
+    "akamai": "Akamai Edge",
+    "microsoft": "Microsoft Azure",
+    "azure": "Microsoft Azure",
+    "digitalocean": "DigitalOcean",
+    "ovh": "OVHcloud",
+    "hetzner": "Hetzner Online",
+    "linode": "Akamai / Linode"
+}
+
+
+def _get_utc_now_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def resolve_domain_dns(hostname: str) -> DnsIntelligence:
@@ -103,19 +124,31 @@ def resolve_domain_dns(hostname: str) -> DnsIntelligence:
     )
 
 
+def lookup_reverse_dns(ip_str: str) -> Optional[str]:
+    """Resolves reverse DNS (PTR record) for an IP address with safe fallback."""
+    try:
+        host, _, _ = socket.gethostbyaddr(ip_str)
+        return host
+    except Exception:
+        return None
+
+
 async def lookup_ip_hosting_intelligence(ip_str: str) -> HostingIntelligence:
     """
-    Look up IP hosting, ASN, and Geolocation metadata.
+    Look up IP hosting, ASN, Reverse DNS, and Geolocation metadata.
     Uses free public IP-API endpoint with graceful fallback and no required API key.
     Respects private/reserved IP constraints.
     """
+    now_ts = _get_utc_now_str()
     clean_ip = ip_str.strip("[]")
+
     try:
         ip_obj = ipaddress.ip_address(clean_ip)
     except ValueError:
         return HostingIntelligence(
             ip_address=ip_str,
             status="unavailable",
+            lookup_timestamp=now_ts,
             contextual_note="Invalid IP address syntax for hosting intelligence."
         )
 
@@ -123,9 +156,13 @@ async def lookup_ip_hosting_intelligence(ip_str: str) -> HostingIntelligence:
         return HostingIntelligence(
             ip_address=ip_str,
             status="skipped",
+            lookup_timestamp=now_ts,
             organization="Private / Reserved Address Space",
-            contextual_note="Internal network address. Geolocation and external ASN do not apply."
+            contextual_note="Internal network address. Geolocation and external ASN lookups do not apply."
         )
+
+    # Reverse DNS lookup (safe stdlib)
+    rev_dns = lookup_reverse_dns(clean_ip)
 
     # Query public IP intelligence (ip-api.com json API with 4s timeout)
     url = f"http://ip-api.com/json/{clean_ip}?fields=status,message,country,countryCode,regionName,city,lat,lon,isp,org,as"
@@ -135,18 +172,33 @@ async def lookup_ip_hosting_intelligence(ip_str: str) -> HostingIntelligence:
             if resp.status_code == 200:
                 data = resp.json()
                 if data.get("status") == "success":
-                    org = data.get("org") or data.get("isp") or ""
+                    org = data.get("org") or data.get("isp") or "Unknown Organization"
                     asn = data.get("as") or ""
                     combined_org = f"{org} {asn}".lower()
 
-                    is_cloud = any(sig in combined_org for sig in CLOUD_CDN_SIGNATURES)
+                    is_cloud = False
+                    detected_cdn = None
+                    for sig, label in CLOUD_CDN_PROVIDERS.items():
+                        if sig in combined_org:
+                            is_cloud = True
+                            detected_cdn = label
+                            break
 
-                    note = None
-                    if is_cloud:
-                        note = "Hosted on a major cloud/CDN network. Server geolocation reflects edge routing, not website owner identity."
+                    note = (
+                        "Hosted on a major cloud or CDN edge network. Edge server geolocation reflects network routing points rather than the website operator's legal address."
+                        if is_cloud
+                        else "Infrastructure hosted on independent network or regional datacenter provider."
+                    )
+
+                    loc_parts = [p for p in [data.get("city"), data.get("regionName"), data.get("country")] if p]
+                    loc_str = ", ".join(loc_parts) or "Unknown Location"
+
+                    footprint_summary = f"{org} ({asn}) in {loc_str}"
 
                     return HostingIntelligence(
                         ip_address=clean_ip,
+                        hostname=data.get("city"),
+                        reverse_dns=rev_dns,
                         country=data.get("country"),
                         country_code=data.get("countryCode"),
                         region=data.get("regionName"),
@@ -157,9 +209,13 @@ async def lookup_ip_hosting_intelligence(ip_str: str) -> HostingIntelligence:
                         organization=org,
                         isp=data.get("isp"),
                         is_cloud_or_cdn=is_cloud,
+                        provider_name=detected_cdn or org,
+                        cdn_provider=detected_cdn,
                         is_shared_hosting=is_cloud,
                         contextual_note=note,
+                        footprint_summary=footprint_summary,
                         data_provider="IP-API Network Intelligence",
+                        lookup_timestamp=now_ts,
                         status="live"
                     )
     except Exception:
@@ -167,7 +223,9 @@ async def lookup_ip_hosting_intelligence(ip_str: str) -> HostingIntelligence:
 
     return HostingIntelligence(
         ip_address=clean_ip,
+        reverse_dns=rev_dns,
         data_provider="Unavailable",
+        lookup_timestamp=now_ts,
         status="unavailable",
         contextual_note="External hosting intelligence lookup timed out or was unreachable."
     )

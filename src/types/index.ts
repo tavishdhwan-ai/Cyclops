@@ -118,6 +118,10 @@ export interface HostingIntelligenceDetail {
   isp?: string | null;
   is_cloud_or_cdn: boolean;
   provider_name?: string | null;
+  cdn_provider?: string | null;
+  reverse_dns?: string | null;
+  footprint_summary?: string | null;
+  lookup_timestamp?: string | null;
   is_shared_hosting: boolean;
   contextual_note?: string | null;
   data_provider: string;
@@ -143,10 +147,27 @@ export interface FormAnalysisItem {
   action_url?: string | null;
   method: string;
   is_external_action: boolean;
+  action_host?: string | null;
   has_password_field: boolean;
   has_email_field: boolean;
   has_credit_card_field: boolean;
+  has_hidden_fields?: boolean;
+  submits_to_http?: boolean;
   input_field_names: string[];
+}
+
+export interface SensitiveInputAudit {
+  password_fields_detected: number;
+  email_login_fields_detected: number;
+  payment_fields_detected: number;
+  form_submission_destinations: string[];
+  cross_origin_submission_detected: boolean;
+  cross_origin_details: string[];
+  submits_over_insecure_http: boolean;
+  is_https_page: boolean;
+  evidence_based_explanation: string;
+  warnings: string[];
+  contextual_notes: string[];
 }
 
 export interface PageContentDetail {
@@ -161,18 +182,82 @@ export interface PageContentDetail {
   script_count: number;
   iframe_count: number;
   contains_hidden_inputs: boolean;
+  sensitive_input_audit?: SensitiveInputAudit;
   status: string;
   limitations: string[];
 }
 
+export interface SslCertificateIntelligence {
+  hostname: string;
+  port: number;
+  status: 'valid' | 'expired' | 'hostname_mismatch' | 'self_signed' | 'untrusted' | 'unencrypted_http' | 'unable_to_verify';
+  connection_status: string;
+  is_valid: boolean;
+  is_public_ca: boolean;
+  issuer: string;
+  issuer_org?: string | null;
+  subject: string;
+  subject_org?: string | null;
+  subject_alt_names: string[];
+  valid_from?: string | null;
+  valid_until?: string | null;
+  days_remaining?: number | null;
+  hostname_match: boolean;
+  certificate_chain_status: string;
+  tls_version?: string | null;
+  cipher_suite?: string | null;
+  plain_language_explanation: string;
+  warnings: string[];
+  limitations: string[];
+}
+
+export interface DownloadSafetyResult {
+  is_download: boolean;
+  server_reported_filename?: string | null;
+  effective_extension?: string | null;
+  mime_type?: string | null;
+  magic_byte_signature?: string | null;
+  detected_format?: string | null;
+  has_double_extension: boolean;
+  is_executable_or_script: boolean;
+  mismatch_detected: boolean;
+  warning?: string | null;
+  explanation: string;
+  inspection_limitations: string[];
+}
+
+export interface AuthorityChecklistItem {
+  authority_name: string;
+  target_checked: string;
+  check_type: string;
+  status: 'threat_reported' | 'no_threat_reported' | 'not_configured' | 'check_unavailable' | 'not_applicable';
+  verdict_label: string;
+  evidence_summary: string;
+  last_checked: string;
+  queried_successfully: boolean;
+}
+
+export interface SecurityAuthorityChecklist {
+  items: AuthorityChecklistItem[];
+  threats_reported_count: number;
+  clean_verdicts_count: number;
+  unconfigured_count: number;
+  unavailable_count: number;
+  summary: string;
+  disclaimer: string;
+}
+
 export interface ProviderResultItem {
   provider_name: string;
+  category?: string;
   status: string;
   is_malicious?: boolean | null;
+  detection_category?: string | null;
   threat_details?: string | null;
   reputation_score?: number | null;
   timestamp?: string | null;
   error_message?: string | null;
+  reference_url?: string | null;
 }
 
 export interface SecuritySignalItem {
@@ -217,6 +302,14 @@ export interface UrlScanResult {
   domain_registration?: DomainRegistrationDetail;
   page_content?: PageContentDetail;
   reputation_providers?: ProviderResultItem[];
+
+  // Six Advanced URL Security Features
+  ssl_certificate?: SslCertificateIntelligence;
+  sensitive_input_audit?: SensitiveInputAudit;
+  download_safety?: DownloadSafetyResult;
+  hosting_footprint?: HostingIntelligenceDetail;
+  security_authority_checklist?: SecurityAuthorityChecklist;
+
   isLiveScan?: boolean;
 }
 

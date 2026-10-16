@@ -1,155 +1,129 @@
-# SentinelAI FastAPI Backend (Phase 4A.3)
+# Cyclops & SentinelAI Security Intelligence Backend
 
-FastAPI backend service for SentinelAI email security analysis. Phase 4A.3 extends the scanner with Advanced Attachment Intelligence (passive, metadata-only attachment risk analysis).
-
-> **CLASSIFICATION**: **Rule-based threat analysis**
-> *This backend performs passive, rule-based heuristic threat analysis on email metadata and text supplied by the extension. It does NOT perform live malware analysis, dynamic sandbox execution, or real-time domain reputation queries.*
+FastAPI backend service for SentinelAI Email Security Analysis and Cyclops Advanced Website URL Security Intelligence.
 
 ---
 
-## Technical Overview
+## 1. Cyclops Advanced URL Security Intelligence Features
 
-- **Framework**: Python / FastAPI / Uvicorn / Pydantic v2
-- **Host**: `127.0.0.1` (Localhost binding only for security)
-- **Port**: `8000`
-- **Analysis Mode**: Controlled Demo Mode (`mode: "demo"`)
+Cyclops provides six explainable, production-grade URL security intelligence modules integrated into a unified asynchronous pipeline:
+
+### Feature 1: SSL/TLS Certificate Intelligence (`app/scanner/ssl_inspector.py`)
+- **Capability**: Safely retrieves and inspects TLS certificates over a secure connection bound to SSRF-validated IP addresses.
+- **Checks**: Certificate validity window, remaining days until expiration, hostname matching (SAN and Common Name), certificate chain verification, and trusted public Certificate Authority identification.
+- **Key Interpretation Principle**: *HTTPS encrypts your connection, but it does not guarantee that a website is legitimate.* Free domain-validation (DV) certificates from automated authorities (e.g., Let's Encrypt) are standard industry practice and are never classified as fraudulent solely because they are free. DV certificates verify domain control, not legal business identity.
+- **Honest Statuses**: Valid & Trusted, Expired, Hostname Mismatch, Self-Signed, Untrusted Root, Unencrypted HTTP, Unable to Verify.
+
+### Feature 2: Real-Time Threat Intelligence & Blocklists (`app/scanner/reputation.py`)
+- **Capability**: Cross-checks URLs, domains, and resolved IP addresses against reputable threat feeds.
+- **Integrations**:
+  - **abuse.ch URLhaus** (Open Threat API — Zero Configuration, No API Key Required)
+  - **Google Safe Browsing API v4** (Configurable via `GOOGLE_SAFE_BROWSING_API_KEY`)
+  - **VirusTotal v3 URL API** (Configurable via `VIRUSTOTAL_API_KEY`)
+  - **AbuseIPDB IP Reputation API** (Configurable via `ABUSEIPDB_API_KEY`)
+- **Strict Distinction**: Explicitly differentiates *Confirmed Threat Detection*, *Clean (No Detection)*, *Not Configured*, *Check Unavailable*, and *Rate Limited*. A missing or failed check is never reported as clean.
+- **Key Principle**: *An absence of threat intelligence detections does not guarantee that a website is safe.*
+
+### Feature 3: Password and Sensitive Input Auditing (`app/scanner/html_inspector.py`)
+- **Capability**: Static, non-executing HTML parser using Python's standard library. Audits forms without executing JavaScript or interacting with buttons.
+- **Checks**: Password inputs, login/email fields, payment/financial inputs (credit card, CVV, bank details), form submission action destinations (`action` URL), method (`POST`/`GET`), and HTTP vs HTTPS transport.
+- **Cross-Origin Detection**: Detects when form action points to an external, third-party domain.
+- **Contextual Risk Interpretation**: Password fields on established banking or web platforms are standard. Concern is raised when credential fields coincide with newly registered domains, external form submission targets, or unencrypted HTTP transport. Cyclops never collects, stores, or transmits actual user credentials.
+
+### Feature 4: Dangerous Download and Hidden File Extension Detection (`app/scanner/download_detector.py`)
+- **Capability**: Evaluates HTTP response headers (`Content-Disposition`, `Content-Type`), final URL paths, and a strictly size-limited initial response body prefix (1 KB) for magic byte file signatures.
+- **Checks**:
+  - File download vs standard HTML webpage
+  - Server-reported filename extraction (RFC 6266 / RFC 5987)
+  - Effective file extensions (case-insensitive, URL-decoded)
+  - Double extension attacks (e.g., `invoice.pdf.exe`, `statement.docx.vbs`)
+  - Executable/script formats (`.exe`, `.scr`, `.bat`, `.ps1`, `.vbs`, `.dll`, `.msi`)
+  - Magic byte file signature assessment: Windows PE (`MZ`), Linux (`ELF`), Mach-O, PDF (`%PDF-`), ZIP/Office (`PK\x03\x04`), 7-Zip (`7z`), RAR (`Rar!`), OLE2 documents.
+  - Disguise/mismatch warnings: flags when a file claims to be a benign document (e.g. PDF) but server headers or magic bytes reveal an executable binary.
+- **Safety Boundaries**: Files are never executed, decompressed, or downloaded to user devices.
+
+### Feature 5: Hosting Provider and Infrastructure Footprint (`app/scanner/dns_intelligence.py`)
+- **Capability**: Gathers passive network and hosting telemetry for target domains and IPs.
+- **Checks**: Forward DNS resolution (A, AAAA records), Reverse DNS (PTR record via `socket.gethostbyaddr`), Hosting / Network Organization, ASN, ISP, approximate IP geolocation (city, region, country), and CDN/reverse-proxy indicators (Cloudflare, AWS, Fastly, Akamai).
+- **Domain Registration**: Authoritative domain age, created date, and accredited registrar via ICANN RDAP.
+- **Contextual Note**: Hosting on AWS, Google Cloud, Microsoft Azure, or a CDN does not establish trustworthiness or malicious intent. Geolocation reflects network routing points rather than the website owner's legal address.
+
+### Feature 6: Trustworthy Agency and Security Authority Audit (`app/scanner/reputation.py`)
+- **Capability**: Transparent security authority checklist displaying the evaluation results across recognized authorities:
+  - abuse.ch URLhaus (URL Malware Feed)
+  - Google Safe Browsing (Social Engineering & Malware Feed)
+  - VirusTotal Intelligence (Multi-Engine Aggregator Feed)
+  - AbuseIPDB (IP Reputation & Abuse)
+  - TLS Root Store Authority (Cryptographic Trust)
+  - ICANN / Regional Internet Registries (Domain Registration & Age)
+- **Distinct Statuses**: Threat Reported, No Threat Reported, Not Configured, Check Unavailable, Not Applicable.
+- **Ethical Reporting**: Clearly distinguishes verified threats from missing evidence. Never fabricates certifications, endorsements, or law enforcement investigations.
 
 ---
 
-## Scanner Architecture (Phase 4A.2 Design)
+## 2. SSRF and Network Security Guardrails
 
-The scanner engine is structured into modular analyzers under `app/scanner/`:
+The URL scanner implements multi-layered protections against Server-Side Request Forgery (SSRF) in `app/scanner/ssrf.py`:
+- Blocks loopback (`127.0.0.0/8`, `::1`), private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local/cloud metadata (`169.254.0.0/16`), multicast, CGNAT (`100.64.0.0/10`), documentation IPs, and IPv4-mapped IPv6.
+- Enforces DNS pre-flight validation and re-validates destination IPs at **every single redirect hop**.
+- Enforces strict hop limits (max 6 redirects) and timeouts (4s connect, 5s read).
+- Strict response prefix limits (max 512 KB) to prevent memory exhaustion and decompression bombs.
 
+---
+
+## 3. Configuration & API Keys
+
+Copy `.env.example` to `.env`:
+
+```bash
+cp .env.example .env
 ```
-backend/
-  app/
-    main.py           # FastAPI web application routes and exception handlers
-    models.py         # Data models re-exported from app.schemas
-    schemas.py        # Pydantic v2 request/response schemas and Finding definitions
-    scanner/
-      __init__.py     # Package exports for scanner engine
-      engine.py       # Core scan orchestrator
-      sender.py       # Advanced sender, domain, display-name & Reply-To intelligence
-      content.py      # Urgency, credential request & account pressure rules
-      urls.py         # Advanced passive URL intelligence & structural heuristics (Phase 4A.2)
-      attachments.py  # Advanced passive attachment metadata analysis (Phase 4A.3)
-      scoring.py      # Centralized continuous decimal threat score & risk level mapping
-      brands.py       # Deterministic brand configuration and lookalike helper utilities
+
+### Zero-Configuration Feeds (Works Without Any API Keys)
+The following checks function out of the box with zero credentials:
+1. **SSL/TLS Certificate Intelligence** (Direct TLS socket query)
+2. **abuse.ch URLhaus Threat Intelligence** (Open Public Threat API)
+3. **Password & Sensitive Input Auditing** (Non-executing static HTML parser)
+4. **Dangerous Download & Disguised Extension Detection** (Prefix & header inspection)
+5. **Hosting, ASN, Reverse DNS & Geolocation Footprint** (IP-API open telemetry)
+6. **ICANN RDAP Domain Registration & Age** (Public RDAP servers)
+
+### Optional Provider API Keys
+If you have API keys, add them to `backend/.env`:
+- `VIRUSTOTAL_API_KEY`: VirusTotal v3 API (Free tier: 4 req/min, 500 req/day).
+- `ABUSEIPDB_API_KEY`: AbuseIPDB v2 API (Free tier: 1,000 checks/day).
+- `GOOGLE_SAFE_BROWSING_API_KEY`: Google Safe Browsing v4 (Free tier: 10,000 req/day).
+
+If left blank, Cyclops marks these providers as **Not configured** in the UI and checklist without crashing or fabricating results.
+
+---
+
+## 4. Running Backend Tests
+
+Run all unit and integration tests using pytest:
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest
+```
+
+Run URL security scanner tests specifically:
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest backend/tests/test_advanced_features.py backend/tests/test_url_scanner.py
 ```
 
 ---
 
-## Rule-based Attachment threat analysis (Phase 4A.3)
+## 5. Running the Application
 
-### Passive Safety Guarantee
+### Start Backend:
+```powershell
+cd backend
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 
-Attachment analysis in SentinelAI is **completely passive and metadata-only**:
-- Only inspects the filename, declared MIME/content-type, and file size already supplied by the extension.
-- **Never** reads, opens, executes, renders, or decompresses attachment contents.
-- **Never** extracts archives or inspects archive member files.
-- **Never** executes macros or documents.
-- **Never** uploads attachments to any external service.
-- **Never** uses antivirus engines or external reputation APIs.
-
-### Implemented Attachment Heuristics
-
-1. **Double / Multiple Extension**: Detects `invoice.pdf.exe`, `salary.xlsx.js`, `image.jpg.lnk` — benign decoy extension before dangerous final extension. HIGH severity.
-2. **Executable Attachment**: Flags `.exe`, `.scr`, `.com`, `.bat`, `.cmd`, `.pif`, `.cpl`, `.dll`. HIGH severity.
-3. **Script Attachment**: Flags `.ps1`, `.vbs`, `.js`, `.jse`, `.wsf`, `.wsh`, `.hta`, `.vbe`, `.py`, `.rb`, `.sh`. HIGH severity.
-4. **Shortcut Attachment**: Flags `.lnk`, `.url`, `.webloc`. HIGH severity.
-5. **Installer Package**: Flags `.msi`, `.msp`, `.mst`, `.cab`, `.appx`. HIGH severity.
-6. **Macro-Enabled Office Document**: Flags `.docm`, `.xlsm`, `.xltm`, `.pptm`, `.dotm`. HIGH severity.
-7. **Suspicious HTML Attachment**: HTML/HTM/MHTML files combined with sensitive email context (credential, login, account language). HIGH severity.
-8. **Archive / Container**: `.zip`, `.rar`, `.7z`, `.tar`, `.iso`, `.img`. LOW severity (elevated to MEDIUM when suspicious filename keywords present).
-9. **MIME / Extension Mismatch**: Detects when declared MIME type contradicts filename extension (e.g. `invoice.pdf` with `application/x-msdownload`). MEDIUM severity.
-10. **Social-Engineering Filename Keywords**: `invoice`, `payment`, `salary`, `password`, `verification`, `payroll`, etc. LOW severity. Only emitted when no stronger finding is already present.
-11. **Suspicious Filename Spacing**: Detects unusual whitespace around extensions (e.g. `payment.pdf .exe`). MEDIUM severity.
-12. **Unusually Long Filename**: Filenames >100 characters that could push the real extension off-screen. LOW severity.
-13. **Excessive Punctuation**: Filenames with ≥4 special characters in the base name. LOW severity.
-14. **Suspiciously Small Document**: Files declaring a document extension but containing <512 bytes. LOW severity.
-
-### Anti-Double-Counting Rules
-
-- **Double extension subsumes executable/script/shortcut findings**: a file with `double_extension` does not also emit `executable_attachment` or `script_attachment`.
-- **Strong findings suppress keyword signals**: `attachment_keyword` is not emitted when `double_extension`, `executable_attachment`, `macro_enabled_document`, etc. are already present.
-- **Per-category cap**: the `attachments` category contribution is capped at **4.0** in the overall email score calculation.
-
-### Limitations
-
-- MIME types are not validated by inspecting file bytes — only the declared `content_type` field is used.
-- Archive contents are never inspected; a `.zip` containing a `.exe` will not be detected at the inner level.
-
----
-
-## Rule-based URL threat analysis (Phase 4A.2)
-
-### Passive Safety Guarantee
-
-URL analysis in SentinelAI is **completely passive**:
-- Parses URLs locally using standard URL parsers.
-- **Never** visits or connects to any URL.
-- **Never** sends HTTP/HTTPS requests to destinations.
-- **Never** resolves hostnames through external reputation services or DNS queries.
-- **Never** crawls pages or follows HTTP redirects.
-- **Never** downloads content or executes scripts.
-
-### Implemented URL Heuristics
-
-1. **Unencrypted HTTP Protocol**: Detects `http://` URLs. Generates a medium-severity finding explaining that connection lacks transport encryption. HTTPS links do not trigger this.
-2. **Raw IP Address URLs**: Detects IPv4 and IPv6 hosts (e.g. `http://192.0.2.10/login` or `http://[2001:db8::1]/login`). Generates high-severity findings for bypassing domain registration.
-3. **Non-Standard Ports**: Identifies explicit ports other than 80/443 (e.g. `:8443`, `:8080`).
-4. **Userinfo / `@` URL Tricks**: Detects URLs with userinfo before hostname (`https://trusted.example@evil.example/login`). Correctly extracts destination host (`evil.example`).
-5. **Excessive Subdomains**: Identifies hostname structures with more than 3–4 subdomain levels.
-6. **Very Long URLs**: Identifies URLs exceeding length thresholds (>150 chars total or >64 char hostnames).
-7. **Heavy URL Encoding**: Flags excessive percent-encoding (%2F, %3A, %40, %2E) obscuring paths or parameters.
-8. **Suspicious Query Parameters**: Inspects parameter *names* only (e.g., `redirect`, `return`, `next`, `url`, `destination`). **Never** logs or exposes parameter values.
-9. **Credential / Login Path Signals**: Flags sensitive security/auth terms in path (`/login`, `/verify`, `/password`, `/account`).
-10. **URL Shorteners**: Matches hostnames against known shorteners (`bit.ly`, `tinyurl.com`, `t.co`, `ow.ly`, `is.gd`, `cutt.ly`, etc.).
-11. **Hostname / Domain Heuristics**: Detects structural anomalies like excessive hyphens (>=3).
-12. **Punycode / Internationalized Domains**: Flags `xn--` domain prefixes and non-ASCII character sets.
-13. **Visible Link Text vs Destination Mismatch**: Detects discrepancies when visible display text (e.g. `https://microsoft.com`) points to a different target domain (`https://example.xyz/login`).
-14. **Lookalike Domain Integration**: Integrates with centralized brand database to detect character substitution (`paypa1.com`, `micr0soft.com`).
-
-### Limitations of Structural URL Analysis
-
-- Structural heuristics flag structural patterns associated with phishing, but do not provide definitive malware detection or real-time domain reputation.
-- Legitimate tracking links or complex web app URLs may trigger long-URL or parameter findings; severity levels remain low/medium to prevent false positives.
-
-### Scoring & Deduplication
-
-- URL findings contribute severity weights: `critical` (+3.0), `high` (+2.5), `medium` (+1.5), `low` (+0.5).
-- The `urls` category contribution is capped at **4.0** maximum to prevent multiple findings on a single link from endlessly inflating the overall email score.
-- Identical findings across URLs are deduplicated to keep results clean and readable.
-
----
-
-## Scoring Model & Risk Boundaries
-
-Final threat scores are continuous decimal numbers from **0.0 to 10.0**, rounded to one decimal place.
-
-The risk level mapping strictly follows these exact boundaries:
-- **`0.0` – `2.49`**: **`LOW`** (Minimal or no security indicators)
-- **`2.5` – `4.99`**: **`MEDIUM`** (Moderate security warnings)
-- **`5.0` – `7.49`**: **`HIGH`** (High-risk phishing indicators requiring review)
-- **`7.5` – `10.0`**: **`CRITICAL`** (Severe security threats)
-
----
-
-## Setup & Running Instructions (Windows PowerShell)
-
-1. Navigate to the backend folder:
-   ```powershell
-   cd C:\Users\Tavish\Desktop\cyclops\backend
-   ```
-2. Run tests:
-   ```powershell
-   python -m pytest tests/
-   ```
-3. Verify byte-compilation:
-   ```powershell
-   python -m compileall app
-   ```
-4. Start backend server:
-   ```powershell
-   python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-   ```
+### Start Frontend:
+```powershell
+npm run dev
+```
+Visit `http://localhost:3000/url-scanner` in your browser.

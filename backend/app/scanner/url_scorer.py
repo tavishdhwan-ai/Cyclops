@@ -4,10 +4,15 @@ Explainable multi-signal risk scoring and evidence aggregator for Cyclops Websit
 Combines:
 1. URL syntax & hostname heuristics (homographs, raw IP, sensitive path terms, shorteners)
 2. Domain age & registration evidence (RDAP)
-3. Infrastructure & Network observations (SSRF, cloud hosting, DNS)
+3. Infrastructure & Network footprint (SSRF, cloud hosting, DNS, Reverse DNS)
 4. Redirect behavior (downgrades, cross-domain redirects, loops)
 5. Static HTML observations (password fields, credential harvesting text, external form actions)
-6. Reputation providers (VirusTotal, Google Safe Browsing, AbuseIPDB)
+6. Feature 1: SSL/TLS Certificate Intelligence
+7. Feature 2: Real-time Threat Intelligence Adapters (URLhaus, GSB, VT, AbuseIPDB)
+8. Feature 3: Password and Sensitive Input Auditing
+9. Feature 4: Dangerous Download and Disguised Extension Detection
+10. Feature 5: Hosting Provider and Infrastructure Footprint
+11. Feature 6: Security Authority Checklist
 
 Separates observed facts from risk interpretations.
 Never classifies a site as verified safe merely because external checks were unknown.
@@ -19,13 +24,15 @@ from app.scanner.url_validator import NormalizedUrl
 from app.scanner.ssrf import SafeFetchResult
 from app.scanner.dns_intelligence import DnsIntelligence, HostingIntelligence
 from app.scanner.rdap import DomainRegistrationInfo
-from app.scanner.html_inspector import StaticContentAnalysis
-from app.scanner.reputation import ProviderResult
+from app.scanner.html_inspector import StaticContentAnalysis, SensitiveInputAudit
+from app.scanner.reputation import ProviderResult, SecurityAuthorityChecklist
+from app.scanner.ssl_inspector import SslCertificateIntelligence
+from app.scanner.download_detector import DownloadSafetyResult
 
 
 class SecuritySignal(BaseModel):
     id: str
-    category: str  # "url_heuristics", "redirects", "domain_age", "network", "page_content", "threat_intel"
+    category: str  # "url_heuristics", "redirects", "domain_age", "network", "page_content", "threat_intel", "ssl_certificate", "download_safety"
     severity: str  # "low", "medium", "high", "critical", "info"
     title: str
     description: str
@@ -57,6 +64,14 @@ class AggregatedUrlReport(BaseModel):
     domain_registration: DomainRegistrationInfo
     page_content: StaticContentAnalysis
     reputation_providers: List[ProviderResult] = Field(default_factory=list)
+
+    # Six Advanced URL Security Features
+    ssl_certificate: Optional[SslCertificateIntelligence] = None
+    sensitive_input_audit: Optional[SensitiveInputAudit] = None
+    download_safety: Optional[DownloadSafetyResult] = None
+    hosting_footprint: Optional[HostingIntelligence] = None
+    security_authority_checklist: Optional[SecurityAuthorityChecklist] = None
+
     timestamp: str
 
 
@@ -69,7 +84,10 @@ def compute_url_risk_report(
     rdap_info: DomainRegistrationInfo,
     html_info: StaticContentAnalysis,
     providers: List[ProviderResult],
-    timestamp: str
+    timestamp: str,
+    ssl_info: Optional[SslCertificateIntelligence] = None,
+    download_info: Optional[DownloadSafetyResult] = None,
+    authority_checklist: Optional[SecurityAuthorityChecklist] = None
 ) -> AggregatedUrlReport:
     """
     Computes explainable risk assessment based on genuine collected evidence.
@@ -186,7 +204,6 @@ def compute_url_risk_report(
                 ))
                 risks.append(f"Domain is relatively new ({rdap_info.domain_age_days} days old).")
             elif rdap_info.domain_age_days > 730:
-                # Established domain (> 2 years)
                 signals.append(SecuritySignal(
                     id="established_domain",
                     category="domain_age",
@@ -200,28 +217,93 @@ def compute_url_risk_report(
     elif rdap_info.status in ("unavailable", "skipped", "not_found"):
         missing.append(f"Domain registration details (RDAP): {rdap_info.error or 'Data unavailable'}")
 
-    # 4. Static Page Content Inspection
-    if html_info.has_password_input and html_info.has_external_form_action:
-        signals.append(SecuritySignal(
-            id="credential_theft_external_post",
-            category="page_content",
-            severity="critical",
-            title="Credential Form Submitting to External Domain",
-            description="The page renders a password input form whose action destination submits data to an external host.",
-            weight=3.5
-        ))
-        risks.append("CRITICAL: Password form transmits credentials to an external destination.")
-    elif html_info.has_password_input and norm.scheme == "http":
-        signals.append(SecuritySignal(
-            id="insecure_password_form",
-            category="page_content",
-            severity="high",
-            title="Insecure Password Input on Plain HTTP",
-            description="The page solicits passwords over unencrypted HTTP, exposing credentials in cleartext.",
-            weight=2.5
-        ))
-        risks.append("Password input detected over an unencrypted connection.")
+    # 4. Feature 1: SSL/TLS Certificate Intelligence
+    if ssl_info:
+        if ssl_info.status == "expired":
+            signals.append(SecuritySignal(
+                id="ssl_expired",
+                category="ssl_certificate",
+                severity="high",
+                title="Expired SSL/TLS Certificate",
+                description="The server presents an expired certificate. Encrypted communication cannot be verified.",
+                weight=2.5
+            ))
+            risks.append("Expired TLS certificate presented by server.")
+        elif ssl_info.status == "hostname_mismatch":
+            signals.append(SecuritySignal(
+                id="ssl_hostname_mismatch",
+                category="ssl_certificate",
+                severity="high",
+                title="Certificate Hostname Mismatch",
+                description=f"Certificate names do not match target hostname '{ssl_info.hostname}'.",
+                weight=2.5
+            ))
+            risks.append(f"Certificate hostname mismatch ({ssl_info.hostname}).")
+        elif ssl_info.status == "self_signed":
+            signals.append(SecuritySignal(
+                id="ssl_self_signed",
+                category="ssl_certificate",
+                severity="medium",
+                title="Self-Signed Certificate",
+                description="Server certificate was self-signed and not issued by a publicly trusted root CA.",
+                weight=1.5
+            ))
+            risks.append("Self-signed TLS certificate in use.")
+        elif ssl_info.status == "unencrypted_http":
+            signals.append(SecuritySignal(
+                id="unencrypted_http_connection",
+                category="ssl_certificate",
+                severity="medium",
+                title="Unencrypted HTTP Protocol",
+                description="Target website operates over unencrypted HTTP without TLS transport security.",
+                weight=1.5
+            ))
+            risks.append("Unencrypted HTTP in use (no TLS certificate).")
+        elif ssl_info.status == "valid":
+            reassuring.append(f"Valid TLS certificate issued by {ssl_info.issuer} matching hostname.")
+    else:
+        missing.append("TLS certificate verification was not evaluated.")
 
+    # 5. Feature 3: Static Page Content & Sensitive Input Auditing
+    sensitive_audit = html_info.sensitive_input_audit
+    if sensitive_audit:
+        if sensitive_audit.cross_origin_submission_detected:
+            signals.append(SecuritySignal(
+                id="cross_origin_form_submission",
+                category="page_content",
+                severity="critical",
+                title="Cross-Origin Form Submission",
+                description="Input form transmits credentials or data to an external third-party domain.",
+                weight=3.5
+            ))
+            risks.append("Form inputs submit data across origins to a third-party host.")
+        if sensitive_audit.submits_over_insecure_http:
+            signals.append(SecuritySignal(
+                id="insecure_http_form_action",
+                category="page_content",
+                severity="high",
+                title="Form Submitting Over Insecure HTTP",
+                description="Form action endpoint submits sensitive inputs over plaintext HTTP.",
+                weight=2.5
+            ))
+            risks.append("Form action submits credentials over unencrypted HTTP.")
+        if sensitive_audit.password_fields_detected > 0:
+            if not sensitive_audit.is_https_page:
+                risks.append("Password input detected on an unencrypted page.")
+            elif rdap_info.is_recently_registered:
+                signals.append(SecuritySignal(
+                    id="password_on_new_domain",
+                    category="page_content",
+                    severity="high",
+                    title="Password Field on New Domain",
+                    description="Password input field detected on a newly registered or unverified domain.",
+                    weight=2.0
+                ))
+                risks.append("Password entry requested on a recently registered domain.")
+            else:
+                reassuring.append("Login password form detected over HTTPS with consistent domain actions.")
+
+    # Check for credential harvesting text
     if html_info.has_credential_harvesting_terms and (rdap_info.is_recently_registered or norm.is_ip):
         signals.append(SecuritySignal(
             id="phishing_landing_signature",
@@ -233,11 +315,48 @@ def compute_url_risk_report(
         ))
         risks.append("Sensitive account login prompts detected on a newly established or raw-IP host.")
 
-    # 5. Reputation Providers
+    # 6. Feature 4: Dangerous Download and Disguised Extension Detection
+    if download_info and download_info.is_download:
+        if download_info.mismatch_detected:
+            signals.append(SecuritySignal(
+                id="disguised_file_payload",
+                category="download_safety",
+                severity="critical",
+                title="Deceptive Download / Disguised File Extension",
+                description=download_info.warning or "File extension claims benign document format, but server or magic bytes indicate executable payload.",
+                weight=4.0
+            ))
+            risks.append(download_info.warning or "Deceptive file download: executable disguised as document.")
+        elif download_info.has_double_extension:
+            signals.append(SecuritySignal(
+                id="double_extension_download",
+                category="download_safety",
+                severity="critical",
+                title="Double Extension Detected",
+                description=f"Deceptive double extension on downloadable file: '{download_info.server_reported_filename}'.",
+                weight=3.5
+            ))
+            risks.append(f"Downloadable file has a disguised double extension ({download_info.server_reported_filename}).")
+        elif download_info.is_executable_or_script:
+            signals.append(SecuritySignal(
+                id="executable_download",
+                category="download_safety",
+                severity="high",
+                title="Executable Binary / Script Download",
+                description=f"URL delivers an executable file or script ({download_info.server_reported_filename or download_info.effective_extension}).",
+                weight=2.5
+            ))
+            risks.append(f"Delivers an executable binary/script ({download_info.server_reported_filename or download_info.effective_extension}).")
+        else:
+            reassuring.append(f"Downloadable file detected ({download_info.server_reported_filename or 'file'}), no disguised extension.")
+    elif download_info and not download_info.is_download:
+        reassuring.append("Target returns standard HTML webpage content. No file download was initiated.")
+
+    # 7. Feature 2: Reputation Providers
     for prov in providers:
         if prov.status == "malicious_found":
             signals.append(SecuritySignal(
-                id=f"intel_{prov.provider_name.lower().replace(' ', '_')}",
+                id=f"intel_{prov.provider_name.lower().replace(' ', '_').replace('.', '_')}",
                 category="threat_intel",
                 severity="critical",
                 title=f"Flagged by {prov.provider_name}",
@@ -250,18 +369,19 @@ def compute_url_risk_report(
         elif prov.status in ("not_configured", "unavailable", "rate_limited"):
             missing.append(f"{prov.provider_name}: {prov.error_message or 'Provider unavailable'}")
 
-    # 6. Aggregate Threat Score with Category Caps
+    # 8. Aggregate Threat Score with Category Caps
     cat_weights: Dict[str, float] = {}
     for sig in signals:
         cat_weights[sig.category] = cat_weights.get(sig.category, 0.0) + sig.weight
 
-    # Category caps
     caps = {
         "url_heuristics": 3.0,
         "redirects": 3.0,
         "domain_age": 3.0,
         "network": 2.5,
         "page_content": 4.0,
+        "ssl_certificate": 3.0,
+        "download_safety": 4.5,
         "threat_intel": 5.0,
     }
 
@@ -277,26 +397,28 @@ def compute_url_risk_report(
     has_critical = any(s.severity == "critical" for s in signals)
     has_high = any(s.severity == "high" for s in signals)
 
+    risk_signals = [s for s in signals if not s.is_positive and s.severity in ("low", "medium", "high", "critical")]
+
     if has_critical or final_score >= 7.5:
         risk_level = "CRITICAL"
         verdict = "malicious"
-        summary = "Severe security threat detected. Active phishing or malicious infrastructure indicators present."
-        recommendation = "DO NOT visit this destination, enter credentials, or download attachments. Block network traffic immediately."
+        summary = "Severe security threat detected. Active phishing, malicious download, or threat intelligence detections present."
+        recommendation = "DO NOT visit this destination, enter credentials, or open downloads. Block network access immediately."
     elif has_high or final_score >= 5.0:
         risk_level = "HIGH"
         verdict = "phishing" if (html_info.has_password_input or norm.has_homograph_chars) else "suspicious"
-        summary = "High-risk indicators identified. URL exhibits structural or credential harvesting anomalies."
+        summary = "High-risk indicators identified. URL exhibits structural, download, or credential harvesting anomalies."
         recommendation = "Exercise extreme caution. Do not input authentication credentials until verified through independent out-of-band channels."
-    elif final_score >= 2.5 or len(signals) > 0:
+    elif final_score >= 2.5 or len(risk_signals) > 0:
         risk_level = "MEDIUM"
         verdict = "suspicious"
-        summary = f"Identified {len(signals)} moderate risk indicator(s). Review findings before proceeding."
+        summary = f"Identified {len(risk_signals)} moderate risk indicator(s). Review evidence before proceeding."
         recommendation = "Proceed with caution. Verify that the destination domain matches the intended organization."
     else:
         risk_level = "LOW"
         verdict = "clean"
-        summary = "No anomalous phishing, redirect, or domain threats identified during passive analysis."
-        recommendation = "URL appears consistent with normal web properties. Maintain standard web browsing hygiene."
+        summary = "No anomalous phishing, redirect, certificate, or download threats identified during passive analysis."
+        recommendation = "URL appears consistent with standard web properties. Maintain standard web browsing hygiene."
 
     # Plain English explanation synthesis
     parts = []
@@ -331,5 +453,10 @@ def compute_url_risk_report(
         domain_registration=rdap_info,
         page_content=html_info,
         reputation_providers=providers,
+        ssl_certificate=ssl_info,
+        sensitive_input_audit=sensitive_audit,
+        download_safety=download_info,
+        hosting_footprint=hosting_info,
+        security_authority_checklist=authority_checklist,
         timestamp=timestamp
     )
