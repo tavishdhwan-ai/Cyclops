@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useDemoContext } from '../../context/DemoContext';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { DocumentScanResult } from '../../types';
+import { ScanResultSummary } from '../../components/ui/ScanResultSummary';
+import { SecurityFindingsList } from '../../components/ui/SecurityFindingsList';
+import { extractDocumentFindings } from '../../utils/findingTransformers';
 import {
   FileSearch,
   UploadCloud,
@@ -39,6 +42,14 @@ export default function DocumentScannerPage() {
   const [activeDoc, setActiveDoc] = useState<DocumentScanResult | null>(docScans[0] || null);
   const [activeTab, setActiveTab] = useState<'audit' | 'safeview'>('audit');
   const [safeViewPage, setSafeViewPage] = useState<number>(1);
+
+  const docResultsRef = useRef<HTMLDivElement>(null);
+  const docFindingsRef = useRef<HTMLDivElement>(null);
+
+  const docFindingsData = useMemo(() => {
+    if (!activeDoc) return null;
+    return extractDocumentFindings(activeDoc);
+  }, [activeDoc]);
 
   // Expandable sections state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -79,8 +90,14 @@ export default function DocumentScannerPage() {
       const result = await scanDocument(name, sizeStr, rawFile);
       setActiveDoc(result);
       showToast('Scan Completed', `Analysis finalized for ${name}`, result.verdict === 'clean' ? 'success' : 'warning');
+      setTimeout(() => {
+        docResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     } catch {
       showToast('Scan Notification', 'Processed document using local high-security sandbox.', 'info');
+      setTimeout(() => {
+        docResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     } finally {
       setIsScanning(false);
       setScanStage('');
@@ -211,7 +228,33 @@ export default function DocumentScannerPage() {
 
       {/* Active Document Result Display */}
       {!isScanning && activeDoc && (
-        <div className="space-y-6">
+        <div ref={docResultsRef} className="space-y-6">
+          {/* Prominent High-Visibility Verdict Panel */}
+          {docFindingsData && (
+            <ScanResultSummary
+              title={activeDoc.fileName}
+              subtitle={`Size: ${activeDoc.fileSize} • Type: ${activeDoc.fileType} • Scanned ${activeDoc.timestamp} • SHA-256: ${activeDoc.fileHash ? activeDoc.fileHash.slice(0, 16) + '...' : 'Verified'}`}
+              verdict={docFindingsData.verdict}
+              verdictExplanation={docFindingsData.verdictExplanation}
+              counts={docFindingsData.counts}
+              targetType="Document"
+              scanStatus="completed"
+              onScrollToFindings={() => docFindingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            />
+          )}
+
+          {/* Dedicated Security Findings Section */}
+          {docFindingsData && (
+            <div ref={docFindingsRef}>
+              <SecurityFindingsList
+                findings={docFindingsData.findings}
+                title="Document Security Findings"
+                subtitle={`${docFindingsData.checksSummary.completed} of ${docFindingsData.checksSummary.total_checks} security checks completed (${docFindingsData.checksSummary.skipped} format-skipped${docFindingsData.checksSummary.unavailable > 0 ? `, ${docFindingsData.checksSummary.unavailable} unavailable` : ''}).`}
+                checksSummary={docFindingsData.checksSummary}
+              />
+            </div>
+          )}
+
           {/* Main Document Summary Card */}
           <Card className="space-y-6 border-zinc-200 dark:border-zinc-800">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-4">

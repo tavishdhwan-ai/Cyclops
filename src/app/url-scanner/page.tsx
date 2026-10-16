@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useDemoContext } from '../../context/DemoContext';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { UrlScanResult } from '../../types';
+import { ScanResultSummary } from '../../components/ui/ScanResultSummary';
+import { SecurityFindingsList } from '../../components/ui/SecurityFindingsList';
+import { extractUrlFindings } from '../../utils/findingTransformers';
 import {
   Globe,
   Search,
@@ -40,6 +43,14 @@ export default function UrlScannerPage() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const findingsRef = useRef<HTMLDivElement>(null);
+
+  const urlFindingsData = useMemo(() => {
+    if (!activeResult) return null;
+    return extractUrlFindings(activeResult);
+  }, [activeResult]);
+
   const handleScanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputUrl.trim()) return;
@@ -62,6 +73,9 @@ export default function UrlScannerPage() {
       clearTimeout(progressTimer2);
 
       setActiveResult(result);
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Scan failed to complete.';
       setScanError(msg);
@@ -201,65 +215,66 @@ export default function UrlScannerPage() {
       )}
 
       {/* Active Scan Result Display */}
-      {!isScanning && activeResult && (
-        <div className="space-y-6">
-          {/* Main Verdict Card */}
+      {!isScanning && activeResult && urlFindingsData && (
+        <div ref={resultsRef} className="space-y-6 scroll-mt-6">
+          {/* Prominent Scan Result Summary Panel */}
+          <ScanResultSummary
+            verdict={urlFindingsData.verdict}
+            targetName={activeResult.url}
+            targetType="URL"
+            timestamp={activeResult.timestamp}
+            threatScore={
+              activeResult.threat_score !== undefined
+                ? activeResult.threat_score
+                : activeResult.riskScore / 10
+            }
+            threatScoreMax={10.0}
+            summaryExplanation={
+              activeResult.plain_english_explanation ||
+              activeResult.summary ||
+              'Security assessment completed across passive multi-signal intelligence modules.'
+            }
+            findingsCounts={urlFindingsData.counts}
+            scanStatus={
+              activeResult.isLiveScan
+                ? 'Full live multi-signal passive scan completed'
+                : 'Simulated multi-signal passive scan'
+            }
+            onScrollToFindings={() =>
+              findingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+            isLiveScan={Boolean(activeResult.isLiveScan)}
+          />
+
+          {/* Dedicated Security Findings Section with Category Filter */}
+          <div ref={findingsRef}>
+            <SecurityFindingsList
+              findings={urlFindingsData.findings}
+              title="Prioritized Security Findings & Threat Signals"
+              subtitle="Findings identified across real-time feeds, SSL/TLS handshake inspection, and static DOM analysis."
+            />
+          </div>
+
+          {/* Assessment Summary & Context Card */}
           <Card className="space-y-6 border-[#E5E5E5] dark:border-[#262626]" interactive={false}>
-            {/* Verdict Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E5E5E5] dark:border-[#262626] pb-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[#737373]">
-                    Security Verdict
-                  </span>
-                  <Badge level={activeResult.riskLevel}>{activeResult.verdict.toUpperCase()}</Badge>
-                  {activeResult.isLiveScan ? (
-                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded font-medium">
-                      Live Backend Scan
-                    </span>
-                  ) : (
-                    <span className="text-[10px] bg-[#FAFAFA] dark:bg-[#262626] text-[#737373] border border-[#E5E5E5] dark:border-[#262626] px-2 py-0.5 rounded font-medium">
-                      Simulated Demo Fixture
-                    </span>
-                  )}
-                </div>
-                <h2 className="text-base font-bold text-[#111111] dark:text-[#FFFFFF] font-mono break-all">
-                  {activeResult.url}
-                </h2>
-                <p className="text-[11px] text-[#737373] mt-0.5">Scanned: {activeResult.timestamp}</p>
-              </div>
-
-              <div className="rounded-xl border border-[#E5E5E5] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#111111] p-3 text-center shrink-0 min-w-36">
-                <span className="text-[10px] text-[#737373] uppercase tracking-wider block">
-                  Threat Index
-                </span>
-                <span
-                  className={`text-2xl font-black ${
-                    activeResult.riskScore > 50
-                      ? 'text-red-600 dark:text-red-400'
-                      : activeResult.riskScore > 24
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-emerald-600 dark:text-emerald-400'
-                  }`}
-                >
-                  {activeResult.threat_score !== undefined ? activeResult.threat_score.toFixed(1) : (activeResult.riskScore / 10).toFixed(1)} / 10.0
-                </span>
-                <span className="text-[9px] text-[#737373] block mt-0.5">Continuous Threat Scale</span>
-              </div>
-            </div>
-
             {/* Plain English Assessment */}
             <div className="rounded-lg border border-[#E5E5E5] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#111111] p-4 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-[#111111] dark:text-[#FFFFFF]">
-                <Info className="h-4 w-4 text-[#737373]" />
-                Assessment Summary
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#111111] dark:text-[#FFFFFF]">
+                  <Info className="h-4 w-4 text-[#737373]" />
+                  Executive Risk Synthesis
+                </div>
+                <Badge level={activeResult.riskLevel}>{activeResult.verdict.toUpperCase()}</Badge>
               </div>
               <p className="text-xs text-[#111111] dark:text-[#FFFFFF] leading-relaxed">
                 {activeResult.plain_english_explanation || activeResult.summary || 'URL scan completed.'}
               </p>
-              <div className="pt-2 border-t border-[#E5E5E5] dark:border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
+              <div className="pt-2 border-t border-[#E5E5E5] dark:border-[#262626] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                 <span className="font-semibold text-[#737373]">
-                  Recommended Action: <span className="font-normal text-[#111111] dark:text-[#FFFFFF]">{activeResult.recommendedAction}</span>
+                  Recommended Action:{' '}
+                  <span className="font-bold text-[#111111] dark:text-[#FFFFFF]">
+                    {activeResult.recommendedAction}
+                  </span>
                 </span>
               </div>
             </div>

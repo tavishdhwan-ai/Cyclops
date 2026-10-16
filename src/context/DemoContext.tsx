@@ -334,6 +334,7 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
           brand_domain_consistency: data.brand_domain_consistency,
           script_translator: data.script_translator,
           hidden_content: data.hidden_content,
+          checks_summary: data.checks_summary,
         };
 
         setDocScans((prev) => [liveDoc, ...prev]);

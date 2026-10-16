@@ -19,12 +19,22 @@ def generate_safe_view_preview(file_bytes: bytes, filename: str) -> SafeViewResu
     """
     Renders static page preview images for PDF, Office, and HTML files without executing active content.
     """
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+
+    if ext in ["exe", "bin", "dll", "com", "bat", "ps1"] or file_bytes.startswith(b"MZ"):
+        return SafeViewResult(
+            preview_id=f"preview-{uuid.uuid4().hex[:12]}",
+            status="unavailable",
+            disclaimer="Safe View visual flattening is unavailable for executable binaries and scripts.",
+            pages=[],
+            total_pages=0,
+        )
+
     res = SafeViewResult(
         preview_id=f"preview-{uuid.uuid4().hex[:12]}",
         status="available",
     )
 
-    ext = filename.lower().split(".")[-1] if "." in filename else ""
     pages_text: List[List[str]] = []
 
     try:

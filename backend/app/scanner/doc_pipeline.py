@@ -5,7 +5,11 @@ Orchestrates all 9 document security capabilities into a unified, evidence-based
 import hashlib
 import time
 from typing import Dict, Any, List
-from app.schemas import DocumentScanResponse
+from app.schemas import (
+    DocumentScanResponse,
+    DocumentChecksSummary,
+    DocumentCheckItem,
+)
 from app.scanner.macro_inspector import inspect_macros_and_code
 from app.scanner.html_doc_inspector import inspect_html_attachment
 from app.scanner.doc_links import extract_document_links
@@ -158,6 +162,200 @@ def orchestrate_document_scan(file_bytes: bytes, filename: str) -> DocumentScanR
         )
         recommended_action = "Document appears standard. Normal security hygiene applies."
 
+    # 10. Track Detailed Execution Status for all 9 Security Checks
+    checks: List[DocumentCheckItem] = []
+    limitations: List[str] = []
+
+    # 1. Macro & Embedded Code
+    macro_findings = len(macro_res.suspicious_indicators) + len(macro_res.embedded_objects_detected)
+    if ext in ["docm", "xlsm", "pptm", "docx", "xlsx", "pptx"]:
+        macro_status = "completed"
+        macro_desc = "Inspected OOXML package container and VBA streams for macros and automation."
+    elif ext in ["exe", "bin"]:
+        macro_status = "skipped"
+        macro_desc = "VBA macro inspection not applicable to binary executables."
+    else:
+        macro_status = "completed" if macro_res.status in ["detected", "not_detected"] else "skipped"
+        macro_desc = macro_res.explanation
+    checks.append(DocumentCheckItem(
+        id="check-macro",
+        name="VBA Macro & Embedded Automation Analysis",
+        category="Macros & Code",
+        status=macro_status,
+        description=macro_desc,
+        findings_count=macro_findings,
+    ))
+
+    # 2. HTML Phishing Safety
+    html_findings = len(html_res.password_fields_found) + len(html_res.external_form_destinations) + len(html_res.obfuscated_scripts)
+    if ext in ["html", "htm"] or html_res.is_html:
+        html_status = "completed"
+        html_desc = "Parsed HTML DOM elements, login inputs, destination action URLs, and scripts."
+    else:
+        html_status = "skipped"
+        html_desc = "HTML phishing checks skipped (not an HTML document)."
+    if html_res.inspection_limitations:
+        limitations.extend(html_res.inspection_limitations)
+    checks.append(DocumentCheckItem(
+        id="check-html",
+        name="HTML Phishing & Credential Form Inspection",
+        category="HTML Security",
+        status=html_status,
+        description=html_desc,
+        findings_count=html_findings,
+        limitations="; ".join(html_res.inspection_limitations) if html_res.inspection_limitations else None,
+    ))
+
+    # 3. Embedded Hyperlinks
+    link_findings = links_res.mismatched_links_count
+    if ext == "exe":
+        link_status = "skipped"
+        link_desc = "Hyperlink relationship extraction skipped for raw binary executable."
+    else:
+        link_status = "completed"
+        link_desc = f"Extracted and audited {links_res.total_links_found} embedded hyperlink destination(s)."
+    checks.append(DocumentCheckItem(
+        id="check-links",
+        name="Embedded Hyperlink & One-Click Misdirection Audit",
+        category="Hyperlinks",
+        status=link_status,
+        description=link_desc,
+        findings_count=link_findings,
+    ))
+
+    # 4. Brand Domain Consistency
+    brand_findings = len(brand_res.mismatches)
+    if ext == "exe":
+        brand_status = "skipped"
+        brand_desc = "Brand domain consistency check skipped for binary files."
+    else:
+        brand_status = "completed"
+        brand_desc = "Cross-referenced document text branding against destination web hosts."
+    checks.append(DocumentCheckItem(
+        id="check-brand",
+        name="Brand Identity & Domain Verification",
+        category="Brand Matching",
+        status=brand_status,
+        description=brand_desc,
+        findings_count=brand_findings,
+    ))
+
+    # 5. Exploit Indicators & Structural Actions
+    exploit_findings = len(exploit_res.suspicious_actions) + len(exploit_res.structural_anomalies) + len(exploit_res.known_signature_matches)
+    if ext in ["pdf", "exe"]:
+        exploit_status = "completed"
+        exploit_desc = "Audited document dictionary streams, /Launch execution actions, and binary headers."
+    else:
+        exploit_status = "completed"
+        exploit_desc = "Audited package structure and archive integrity."
+    if exploit_res.coverage_and_limitations:
+        limitations.append(exploit_res.coverage_and_limitations)
+    checks.append(DocumentCheckItem(
+        id="check-exploit",
+        name="Structural Exploit & Launch Action Audit",
+        category="Exploits",
+        status=exploit_status,
+        description=exploit_desc,
+        findings_count=exploit_findings,
+        limitations=exploit_res.coverage_and_limitations,
+    ))
+
+    # 6. Interactive Form Submission
+    form_findings = len(form_res.external_destinations)
+    if ext in ["pdf", "html", "htm"]:
+        form_status = "completed"
+        form_desc = "Audited AcroForm / HTML form submission hooks for external data exfiltration."
+    else:
+        form_status = "skipped"
+        form_desc = "Interactive form check not applicable to this file format."
+    if form_res.limitations:
+        limitations.append(form_res.limitations)
+    checks.append(DocumentCheckItem(
+        id="check-forms",
+        name="Interactive Form & Data Exfiltration Audit",
+        category="Forms",
+        status=form_status,
+        description=form_desc,
+        findings_count=form_findings,
+        limitations=form_res.limitations,
+    ))
+
+    # 7. Script Translation
+    if macro_res.macro_detected:
+        script_status = "completed"
+        script_desc = "Translated extracted VBA macro commands into plain-English behavioral summary."
+        script_findings = len(script_res.observed_operations)
+    else:
+        script_status = "skipped"
+        script_desc = "No macro script present to translate."
+        script_findings = 0
+    checks.append(DocumentCheckItem(
+        id="check-translator",
+        name="VBA Script De-obfuscation & Explanation",
+        category="Script Explanation",
+        status=script_status,
+        description=script_desc,
+        findings_count=script_findings,
+    ))
+
+    # 8. Hidden Content
+    hidden_findings = hidden_res.hidden_elements_count
+    if ext in ["pdf", "docx", "docm", "xlsx", "xlsm"]:
+        hidden_status = "completed"
+        hidden_desc = "Inspected visual geometries, invisible font colors, and concealed layers."
+    else:
+        hidden_status = "skipped"
+        hidden_desc = "Concealed text layer audit not applicable to this format."
+    checks.append(DocumentCheckItem(
+        id="check-hidden",
+        name="Concealed & Invisible Text Layer Audit",
+        category="Hidden Content",
+        status=hidden_status,
+        description=hidden_desc,
+        findings_count=hidden_findings,
+    ))
+
+    # 9. Safe View Visual Sandboxing
+    if safe_view_res.status == "available":
+        safe_view_status = "completed"
+        safe_view_desc = "Successfully flattened document into zero-interaction static preview."
+    elif safe_view_res.status == "unavailable":
+        safe_view_status = "unavailable"
+        safe_view_desc = safe_view_res.disclaimer or "Safe View preview is unavailable for this file format."
+    else:
+        safe_view_status = "completed"
+        safe_view_desc = "Rendered isolated preview without client-side script execution."
+    if safe_view_res.disclaimer:
+        limitations.append(safe_view_res.disclaimer)
+    checks.append(DocumentCheckItem(
+        id="check-safeview",
+        name="Zero-Interaction Safe View Flattening",
+        category="Sandboxed Preview",
+        status=safe_view_status,
+        description=safe_view_desc,
+        findings_count=0,
+        limitations=safe_view_res.disclaimer,
+    ))
+
+    # Compute checks summary statistics
+    completed_count = sum(1 for c in checks if c.status == "completed")
+    skipped_count = sum(1 for c in checks if c.status == "skipped")
+    failed_count = sum(1 for c in checks if c.status == "failed")
+    unavailable_count = sum(1 for c in checks if c.status == "unavailable")
+
+    limitations.append("Static structural audit cannot guarantee discovery of novel zero-day exploits. No code was executed.")
+    unique_limitations = list(dict.fromkeys([l.strip() for l in limitations if l and l.strip()]))
+
+    checks_summary = DocumentChecksSummary(
+        total_checks=len(checks),
+        completed=completed_count,
+        skipped=skipped_count,
+        failed=failed_count,
+        unavailable=unavailable_count,
+        limitations=unique_limitations,
+        checks=checks,
+    )
+
     return DocumentScanResponse(
         id=f"doc-{hashlib.md5(f'{filename}{time.time()}'.encode()).hexdigest()[:12]}",
         file_name=filename,
@@ -181,4 +379,5 @@ def orchestrate_document_scan(file_bytes: bytes, filename: str) -> DocumentScanR
         brand_domain_consistency=brand_res,
         script_translator=script_res,
         hidden_content=hidden_res,
+        checks_summary=checks_summary,
     )

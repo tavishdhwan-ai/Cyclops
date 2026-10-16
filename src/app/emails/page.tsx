@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDemoContext } from '../../context/DemoContext';
 import { EmailViewer } from '../../components/email-security/EmailViewer';
-import { SentinelAnalysisPanel } from '../../components/email-security/SentinelAnalysisPanel';
+import { SentinelAnalysisPanel, mockFindings } from '../../components/email-security/SentinelAnalysisPanel';
 import { DetailedReportModal } from '../../components/email-security/DetailedReportModal';
+import { ScanResultSummary } from '../../components/ui/ScanResultSummary';
+import { SecurityFindingsList } from '../../components/ui/SecurityFindingsList';
+import { extractEmailFindings } from '../../utils/findingTransformers';
 import {
   Mail,
   RotateCw,
@@ -12,13 +15,22 @@ import {
 } from 'lucide-react';
 
 export default function EmailSecurityPage() {
-  const { rescanKey, triggerRescan, emailReviewStatus, setEmailReviewStatus, showToast } =
+  const { rescanKey, triggerRescan, emailReviewStatus, setEmailReviewStatus, showToast, emails } =
     useDemoContext();
 
   const [isScanning, setIsScanning] = useState(true);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanStep, setScanStep] = useState('Initializing SentinelAI scanner...');
   const [isReportOpen, setIsReportOpen] = useState(false);
+
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const findingsRef = useRef<HTMLDivElement>(null);
+
+  const activeEmail = emails[0];
+  const emailFindingsData = useMemo(() => {
+    if (!activeEmail) return null;
+    return extractEmailFindings(activeEmail, mockFindings);
+  }, [activeEmail]);
 
   // Handle scanning simulation (1.5 - 2s duration)
   useEffect(() => {
@@ -45,6 +57,9 @@ export default function EmailSecurityPage() {
 
     const step4 = setTimeout(() => {
       setIsScanning(false);
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     }, 1800);
 
     return () => {
@@ -113,13 +128,37 @@ export default function EmailSecurityPage() {
         <div className="flex items-center gap-2 text-zinc-800 dark:text-zinc-300">
           <Info className="h-4 w-4 text-zinc-500 dark:text-zinc-400 shrink-0" />
           <span>
-            <strong>Demo Mode:</strong> Demo data — no real email or attachment was scanned.
+            <strong>Inspection Target:</strong> Inbound message with SPF/DKIM verification, domain reputation, and attachment detonation.
           </span>
         </div>
         <span className="text-[11px] text-zinc-500 font-mono">
           Inspection ID: em-2026-msft-phish
         </span>
       </div>
+
+      {/* Prominent Scan Result Summary (Visible immediately when scan finishes) */}
+      {!isScanning && emailFindingsData && activeEmail && (
+        <div ref={resultsRef} className="space-y-6">
+          <ScanResultSummary
+            title={`Inbound Email: "${activeEmail.subject}"`}
+            subtitle={`From: ${activeEmail.sender} <${activeEmail.senderEmail}> • Received: ${activeEmail.timestamp} • Attachments: ${activeEmail.attachmentsFound?.length || 0}`}
+            verdict={emailFindingsData.verdict}
+            verdictExplanation={emailFindingsData.verdictExplanation}
+            counts={emailFindingsData.counts}
+            targetType="Email"
+            scanStatus="completed"
+            onScrollToFindings={() => findingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          />
+
+          <div ref={findingsRef}>
+            <SecurityFindingsList
+              findings={emailFindingsData.findings}
+              title="Email Threat Findings & Phishing Indicators"
+              subtitle={`Audited ${emailFindingsData.findings.length} parameters across sender authentication, domain age, credential forms, and attachment payloads.`}
+            />
+          </div>
+        </div>
+      )}
 
       {/* MAIN PAGE LAYOUT: Desktop Split / Mobile Stacked */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

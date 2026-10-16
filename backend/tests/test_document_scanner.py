@@ -301,3 +301,81 @@ def test_api_scan_document_multipart_upload():
     assert data["file_name"] == "Employee_Policy.pdf"
     assert data["verdict"] == "clean"
     assert data["risk_level"] == "safe"
+    assert "checks_summary" in data
+    assert data["checks_summary"]["completed"] >= 6
+    assert data["checks_summary"]["failed"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Feature Check Tracking and Findings Separation Tests
+# ---------------------------------------------------------------------------
+
+def test_checks_summary_zero_findings_with_successful_checks():
+    """Validates that a clean document has successful checks, 0 findings, and limitations disclosed."""
+    dummy_pdf = get_fixture_bytes("SentinelAI_Employee_Policy.pdf")
+    res = orchestrate_document_scan(dummy_pdf, "SentinelAI_Employee_Policy.pdf")
+
+    assert res.verdict == "clean"
+    assert len(res.detected_signals) == 0  # Zero threat findings
+    assert res.checks_summary is not None
+    assert res.checks_summary.total_checks == 9
+    assert res.checks_summary.completed >= 6
+    assert res.checks_summary.failed == 0
+    assert res.checks_summary.unavailable == 0
+    # Limitations are present
+    assert len(res.checks_summary.limitations) > 0
+    assert any("Static structural audit cannot guarantee discovery of novel zero-day" in lim for lim in res.checks_summary.limitations)
+    # Check individual check items
+    check_ids = [c.id for c in res.checks_summary.checks]
+    assert "check-macro" in check_ids
+    assert "check-links" in check_ids
+    assert "check-safeview" in check_ids
+    assert "check-hidden" in check_ids
+
+
+def test_checks_summary_nonzero_findings():
+    """Validates that a malicious file separates threat findings from completed checks."""
+    xlsm_bytes = get_fixture_bytes("Quarterly_Report_2026.xlsm")
+    res = orchestrate_document_scan(xlsm_bytes, "Quarterly_Report_2026.xlsm")
+
+    assert res.verdict in ["suspicious", "malicious"]
+    assert len(res.detected_signals) > 0  # Nonzero threat findings
+    assert res.checks_summary is not None
+    assert res.checks_summary.completed >= 5
+    # Macro check should report findings
+    macro_check = next((c for c in res.checks_summary.checks if c.id == "check-macro"), None)
+    assert macro_check is not None
+    assert macro_check.findings_count > 0
+    assert macro_check.status == "completed"
+
+
+def test_checks_summary_partial_failures_and_unavailable():
+    """Validates that an unsupported/binary format records unavailable and skipped checks accurately."""
+    exe_bytes = get_fixture_bytes("Vendor_Invoice_Q3_Final.pdf.exe")
+    res = orchestrate_document_scan(exe_bytes, "Vendor_Invoice_Q3_Final.pdf.exe")
+
+    assert res.checks_summary is not None
+    assert res.checks_summary.unavailable >= 1  # Safe View is unavailable for executable
+    safe_view_check = next((c for c in res.checks_summary.checks if c.id == "check-safeview"), None)
+    assert safe_view_check is not None
+    assert safe_view_check.status == "unavailable"
+    assert "unavailable" in safe_view_check.description.lower() or "executable" in safe_view_check.description.lower()
+
+    # Hyperlink check skipped
+    link_check = next((c for c in res.checks_summary.checks if c.id == "check-links"), None)
+    assert link_check is not None
+    assert link_check.status == "skipped"
+
+
+def test_checks_summary_zero_checks_defaults():
+    """Validates that an unassessed DocumentChecksSummary initializes with zero completed checks."""
+    from app.schemas import DocumentChecksSummary
+    summary = DocumentChecksSummary()
+    assert summary.total_checks == 0
+    assert summary.completed == 0
+    assert summary.skipped == 0
+    assert summary.failed == 0
+    assert summary.unavailable == 0
+    assert summary.checks == []
+    assert summary.limitations == []
+

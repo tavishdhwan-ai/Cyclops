@@ -207,6 +207,26 @@ class HiddenContentResult(BaseModel):
     explanation: str = "Text content and structural layers appear consistently visible."
 
 
+class DocumentCheckItem(BaseModel):
+    id: str
+    name: str
+    category: str
+    status: Literal["completed", "skipped", "failed", "unavailable"]
+    description: str
+    findings_count: int = 0
+    limitations: Optional[str] = None
+
+
+class DocumentChecksSummary(BaseModel):
+    total_checks: int = 0
+    completed: int = 0
+    skipped: int = 0
+    failed: int = 0
+    unavailable: int = 0
+    limitations: List[str] = Field(default_factory=list)
+    checks: List[DocumentCheckItem] = Field(default_factory=list)
+
+
 class DocumentScanResponse(BaseModel):
     id: str
     file_name: str
@@ -232,5 +252,9 @@ class DocumentScanResponse(BaseModel):
     brand_domain_consistency: BrandDomainConsistencyResult
     script_translator: ScriptTranslationResult
     hidden_content: HiddenContentResult
+
+    # Checks Execution Tracking
+    checks_summary: DocumentChecksSummary = Field(default_factory=DocumentChecksSummary)
+
 
 

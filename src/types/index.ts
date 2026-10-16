@@ -318,13 +318,13 @@ export interface DocMacroInspection {
   macro_detected: boolean;
   status: 'detected' | 'not_detected' | 'unable_to_inspect' | 'unsupported';
   embedded_objects_detected: string[];
-  suspicious_indicators: string[];
-  extracted_code_status: string;
-  extracted_snippets: string[];
-  affected_components: string[];
-  evidence_count: number;
+  suspicious_indicators?: string[];
+  extracted_code_status?: string;
+  extracted_snippets?: string[];
+  affected_components?: string[];
+  evidence_count?: number;
   explanation: string;
-  warnings: string[];
+  warnings?: string[];
 }
 
 export interface DocHtmlSafety {
@@ -345,30 +345,34 @@ export interface DocEmbeddedLinkItem {
   visible_text: string;
   destination_url: string;
   destination_domain: string;
-  location: string;
+  location?: string;
   mismatch_warning?: string | null;
-  threat_verdict: string;
-  recommended_action: string;
+  threat_verdict?: string;
+  recommended_action?: string;
+  is_mismatched?: boolean;
+  risk_score?: number;
+  reasons?: string[];
 }
 
 export interface DocEmbeddedLinks {
   total_links_found: number;
   mismatched_links_count: number;
-  links: DocEmbeddedLinkItem[];
-  summary: string;
-  warnings: string[];
+  links?: DocEmbeddedLinkItem[];
+  items?: DocEmbeddedLinkItem[];
+  summary?: string;
+  warnings?: string[];
 }
 
 export interface DocExploitIndicators {
   structural_anomalies: string[];
   suspicious_actions: string[];
-  embedded_payloads: string[];
+  embedded_payloads?: string[];
   known_signature_matches: string[];
-  parser_warnings: string[];
+  parser_warnings?: string[];
   compression_ratio: number;
-  engine_version: string;
+  engine_version?: string;
   coverage_and_limitations: string;
-  explanation: string;
+  explanation?: string;
 }
 
 export interface DocFormSubmission {
@@ -412,26 +416,50 @@ export interface DocBrandDomainConsistency {
 
 export interface DocScriptTranslation {
   has_script: boolean;
-  language: string;
+  language?: string;
   plain_english_summary: string;
   observed_operations: string[];
-  inferred_intent_warning: string;
-  evidence_lines: string[];
+  inferred_intent_warning?: string;
+  evidence_lines?: string[];
+  intent?: string;
 }
 
 export interface DocHiddenContentItem {
   extracted_text: string;
-  location: string;
+  location?: string;
   classification_reason: string;
-  detection_type: 'structural' | 'visual_inference';
-  context_snippet: string;
+  detection_type?: 'structural' | 'visual_inference';
+  context_snippet?: string;
+  page_number?: number;
+  element_type?: string;
 }
 
 export interface DocHiddenContent {
+  has_hidden_content?: boolean;
   hidden_elements_count: number;
   items: DocHiddenContentItem[];
   summary: string;
   explanation: string;
+}
+
+export interface DocumentCheckItem {
+  id: string;
+  name: string;
+  category: string;
+  status: 'completed' | 'skipped' | 'failed' | 'unavailable';
+  description: string;
+  findings_count: number;
+  limitations?: string | null;
+}
+
+export interface DocumentChecksSummary {
+  total_checks: number;
+  completed: number;
+  skipped: number;
+  failed: number;
+  unavailable: number;
+  limitations: string[];
+  checks: DocumentCheckItem[];
 }
 
 export interface DocumentScanResult {
@@ -449,6 +477,12 @@ export interface DocumentScanResult {
   aiSummary: string;
   recommendedAction: string;
   riskScore?: number; // 0-100
+  fileSizeBytes?: number;
+  fileSizeHuman?: string;
+  confidenceScore?: number;
+  summary?: string;
+  indicators?: string[];
+  uploadedAt?: string;
 
   // Nine Advanced Document Security Features
   macro_inspection?: DocMacroInspection;
@@ -460,6 +494,9 @@ export interface DocumentScanResult {
   brand_domain_consistency?: DocBrandDomainConsistency;
   script_translator?: DocScriptTranslation;
   hidden_content?: DocHiddenContent;
+
+  // Checks Execution Tracking
+  checks_summary?: DocumentChecksSummary;
 }
 
 export interface ActivityEvent {
