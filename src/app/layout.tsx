@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
+import { ThemeProvider } from '../context/ThemeContext';
 import { DemoProvider } from '../context/DemoContext';
 import { AppShell } from '../components/layout/AppShell';
 
@@ -28,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `
               (function() {
                 try {
-                  var saved = localStorage.getItem('sentinel_theme');
+                  var saved = localStorage.getItem('cyclops_theme') || localStorage.getItem('sentinel_theme');
                   var supportDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                   if (saved === 'dark' || (!saved && supportDark)) {
                     document.documentElement.classList.add('dark');
@@ -42,9 +43,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 min-h-screen">
-        <DemoProvider>
-          <AppShell>{children}</AppShell>
-        </DemoProvider>
+        <ThemeProvider>
+          <DemoProvider>
+            <AppShell>{children}</AppShell>
+          </DemoProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

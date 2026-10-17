@@ -26,14 +26,16 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* One unified, simultaneous theme transition for visual properties across the entire application */
-*,
-*::before,
-*::after {
-  transition-property: background-color, color, border-color, box-shadow, fill, stroke;
-  transition-duration: 260ms;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-  transition-delay: 0ms !important;
+/* Zero-lag theme switching: completely suppress transitions when toggling theme */
+.disable-transitions,
+.disable-transitions *,
+.disable-transitions *::before,
+.disable-transitions *::after {
+  -webkit-transition: none !important;
+  -moz-transition: none !important;
+  -o-transition: none !important;
+  -ms-transition: none !important;
+  transition: none !important;
 }
 
 /* Custom interactive hover class for cards and table rows */
@@ -60,8 +62,11 @@ body {
   *,
   *::before,
   *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0ms !important;
     transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
   }
 
   .hover-card,

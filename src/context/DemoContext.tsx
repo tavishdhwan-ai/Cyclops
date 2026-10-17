@@ -30,7 +30,8 @@ interface ToastMessage {
   description?: string;
 }
 
-export type Theme = 'light' | 'dark';
+import { Theme, useTheme } from './ThemeContext';
+export type { Theme };
 
 interface DemoContextType {
   stats: SecurityStats;
@@ -80,57 +81,7 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isQuickScanOpen, setIsQuickScanOpen] = useState(false);
   const [rescanKey, setRescanKey] = useState(0);
   const [emailReviewStatus, setEmailReviewStatus] = useState<'pending' | 'reviewed'>('pending');
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('sentinel_theme') as Theme | null;
-        if (saved === 'light' || saved === 'dark') return saved;
-        return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-      } catch {
-        // Fallback
-      }
-    }
-    return 'dark';
-  });
-
-  React.useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
-
-  const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
-    try {
-      localStorage.setItem('sentinel_theme', newTheme);
-    } catch {
-      // Ignore
-    }
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
-
-  const toggleTheme = () => {
-    setThemeState((currentTheme) => {
-      const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
-      try {
-        localStorage.setItem('sentinel_theme', nextTheme);
-      } catch {
-        // Ignore
-      }
-      if (nextTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-      return nextTheme;
-    });
-  };
+  const { theme, toggleTheme, setTheme } = useTheme();
 
   const triggerRescan = () => {
     setRescanKey((prev) => prev + 1);

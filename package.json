@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx tests/findings.test.ts"
+    "test": "npx tsx tests/findings.test.ts && npx tsx tests/theme.test.ts"
   },
   "dependencies": {
     "lucide-react": "^1.46.0",

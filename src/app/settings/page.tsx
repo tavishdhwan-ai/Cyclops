@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useDemoContext } from '../../context/DemoContext';
+import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/ui/Card';
 import {
   Settings,
@@ -10,7 +11,6 @@ import {
   Lock,
   Eye,
   Save,
-  CheckCircle2,
   Trash2,
   Sun,
   Moon,
@@ -18,7 +18,8 @@ import {
 } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { settings, updateSettings, showToast, theme, setTheme } = useDemoContext();
+  const { settings, updateSettings, showToast } = useDemoContext();
+  const { theme, setTheme } = useTheme();
 
   const [displayName, setDisplayName] = useState(
     settings.companyName === 'Acme Corporation' ? 'Alex Vance' : settings.companyName || 'Alex Vance'
