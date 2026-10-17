@@ -98,15 +98,15 @@ export default function UrlScannerPage() {
           <div>
             <h1 className="text-xl font-bold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
               <Globe className="h-5 w-5 text-[#737373]" />
-              Website URL Security Intelligence
+              Link Scanner
             </h1>
             <p className="text-xs text-[#737373] mt-1">
-              Passive multi-signal intelligence, TLS certificate verification, threat feeds, credential auditing, download inspection, and infrastructure telemetry.
+              Check web links before you click. We inspect certificates, known scams, credential forms, and download safety.
             </p>
           </div>
           <div className="flex items-center gap-2 text-[11px] text-[#737373] bg-[#FAFAFA] dark:bg-[#262626] border border-[#E5E5E5] dark:border-[#262626] rounded-md px-2.5 py-1 shrink-0">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
-            Non-executing passive inspection mode
+            Safe passive check
           </div>
         </div>
       </div>
@@ -250,8 +250,8 @@ export default function UrlScannerPage() {
           <div ref={findingsRef}>
             <SecurityFindingsList
               findings={urlFindingsData.findings}
-              title="Prioritized Security Findings & Threat Signals"
-              subtitle="Findings identified across real-time feeds, SSL/TLS handshake inspection, and static DOM analysis."
+              title="What We Found"
+              subtitle="Potential risks and observations detected during the link check."
             />
           </div>
 
@@ -262,7 +262,7 @@ export default function UrlScannerPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#111111] dark:text-[#FFFFFF]">
                   <Info className="h-4 w-4 text-[#737373]" />
-                  Executive Risk Synthesis
+                  Security Overview
                 </div>
                 <Badge level={activeResult.riskLevel}>{activeResult.verdict.toUpperCase()}</Badge>
               </div>
@@ -339,7 +339,7 @@ export default function UrlScannerPage() {
             <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
               <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
                 <Lock className="h-4 w-4 text-[#737373]" />
-                SSL/TLS Certificate Intelligence
+                Connection &amp; Certificate Details
               </h3>
               {activeResult.ssl_certificate ? (
                 <span
@@ -452,7 +452,7 @@ export default function UrlScannerPage() {
             <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
               <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-[#737373]" />
-                Real-Time Threat Intelligence & Blocklists
+                Known Scam Checks
               </h3>
               <span className="text-[11px] text-[#737373]">
                 {activeResult.reputation_providers?.length || 0} feeds evaluated
@@ -756,7 +756,7 @@ export default function UrlScannerPage() {
             <div className="flex items-center justify-between border-b border-[#E5E5E5] dark:border-[#262626] pb-3">
               <h3 className="text-sm font-semibold text-[#111111] dark:text-[#FFFFFF] flex items-center gap-2">
                 <Server className="h-4 w-4 text-[#737373]" />
-                Hosting Provider &amp; Infrastructure Footprint
+                Website Details
               </h3>
               <span className="text-[10px] bg-[#FAFAFA] dark:bg-[#262626] text-[#737373] border border-[#E5E5E5] dark:border-[#262626] px-2 py-0.5 rounded">
                 Network Telemetry

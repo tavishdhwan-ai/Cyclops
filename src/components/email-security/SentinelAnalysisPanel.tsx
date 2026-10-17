@@ -107,8 +107,8 @@ export const SentinelAnalysisPanel: React.FC<SentinelAnalysisPanelProps> = ({
             <ShieldAlert className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">SentinelAI Threat Intelligence</h2>
-            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Grammarly-like Email Guard</p>
+            <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">Cyclops Email Analysis</h2>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Personal Inbound Safety Guard</p>
           </div>
         </div>
         <span className="rounded-full border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 px-2.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:text-zinc-400">
@@ -250,7 +250,7 @@ export const SentinelAnalysisPanel: React.FC<SentinelAnalysisPanelProps> = ({
                     {isExpanded && (
                       <div className="mt-2.5 border-t border-zinc-200 dark:border-zinc-800/80 pt-2 text-[11px] text-zinc-600 dark:text-zinc-400 space-y-1">
                         <p>
-                          <strong>Mitigation Action:</strong> SentinelAI recommends blocking external links and reporting domain to tenant admin.
+                          <strong>Recommended Safety Action:</strong> Avoid clicking links in this message or entering your credentials.
                         </p>
                         <p className="text-[10px] text-zinc-500">
                           Signal ID: {finding.id} • Risk contribution +1.8
@@ -316,7 +316,7 @@ export const SentinelAnalysisPanel: React.FC<SentinelAnalysisPanelProps> = ({
         <p className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">
           Demo data — no real email or attachment was scanned
         </p>
-        <p className="text-[10px] text-zinc-400 dark:text-zinc-500">SentinelAI Small Business Cyber Guard Prototype</p>
+        <p className="text-[10px] text-zinc-400 dark:text-zinc-500">Cyclops Personal Security</p>
       </div>
     </div>
   );

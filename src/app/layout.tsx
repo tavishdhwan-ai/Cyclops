@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'SentinelAI | Cybersecurity Employee Platform for Small Businesses',
-  description: 'AI-powered security posture, email threat detection, URL scanner, and document safety platform designed for modern SMB teams.',
+  title: 'Cyclops | Personal Online Safety & Security Assistant',
+  description: 'Your online safety, in one place. Check links, inspect suspicious emails, and scan documents for hidden threats.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

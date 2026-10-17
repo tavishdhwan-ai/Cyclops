@@ -13,41 +13,39 @@ interface TopNavProps {
 
 export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
-  const { setIsQuickScanOpen, triggerRescan, activeWorkspace } = useDemoContext();
+  const { setIsQuickScanOpen, triggerRescan } = useDemoContext();
 
   const getPageTitle = (path: string) => {
-    if (path.startsWith('/emails')) return 'Email Security';
-    if (path.startsWith('/url-scanner')) return 'URL & Domain Scanner';
-    if (path.startsWith('/document-scanner')) return 'Document Security';
-    if (path.startsWith('/activity')) return 'Activity Audit Trail';
-    if (path.startsWith('/alerts')) return 'Security Alerts Center';
-    if (path.startsWith('/settings')) return 'Workspace Settings';
-    return 'Security Overview';
+    if (path.startsWith('/emails')) return 'Email Scanner';
+    if (path.startsWith('/url-scanner')) return 'Link Scanner';
+    if (path.startsWith('/document-scanner')) return 'Document Scanner';
+    if (path.startsWith('/history')) return 'Scan History';
+    if (path.startsWith('/activity') || path.startsWith('/alerts')) return 'Scan History';
+    if (path.startsWith('/settings')) return 'Settings';
+    return 'Personal Security Hub';
   };
 
   const isEmailPage = pathname.startsWith('/emails');
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 px-4 backdrop-blur-md lg:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[#E5E5E5] dark:border-zinc-800 bg-[#FFFFFF]/90 dark:bg-zinc-950/90 px-4 backdrop-blur-md lg:px-6">
       <div className="flex items-center gap-3">
         {/* Mobile menu hamburger */}
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-1.5 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-zinc-100 lg:hidden"
+          aria-label="Toggle navigation menu"
+          className="rounded-lg border border-[#E5E5E5] dark:border-zinc-800 p-1.5 text-[#737373] hover:bg-[#FAFAFA] dark:hover:bg-zinc-900 hover:text-[#111111] dark:hover:text-[#FFFFFF] lg:hidden"
         >
           <Menu className="h-4 w-4" />
         </button>
 
         {/* Page title breadcrumb */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-            <span>SentinelAI</span>
+          <div className="flex items-center gap-1.5 text-xs text-[#737373]">
+            <span className="font-semibold text-[#111111] dark:text-[#FFFFFF]">Cyclops</span>
             <span>/</span>
-            <span className="font-medium text-zinc-900 dark:text-zinc-200">{getPageTitle(pathname)}</span>
+            <span className="font-medium text-[#111111] dark:text-zinc-200">{getPageTitle(pathname)}</span>
           </div>
-          <span className="rounded-full border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-zinc-600 dark:text-zinc-400">
-            Demo Mode
-          </span>
         </div>
       </div>
 
@@ -58,17 +56,11 @@ export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => 
           <ThemeToggle size="sm" />
         </div>
 
-        {/* Workspace/User Placeholder */}
-        <div className="hidden sm:flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/80 dark:bg-zinc-900/60 px-2.5 py-1 text-xs text-zinc-600 dark:text-zinc-400">
-          <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-          <span className="font-medium text-zinc-800 dark:text-zinc-300">{activeWorkspace?.name || 'Acme Workspace'}</span>
-        </div>
-
         {/* Rescan Button for Email Security */}
         {isEmailPage && (
           <button
             onClick={triggerRescan}
-            className="flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-900 text-zinc-100 dark:bg-zinc-800 dark:text-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-700 px-3 py-1.5 text-xs font-semibold transition-colors shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 rounded-lg border border-[#E5E5E5] dark:border-zinc-700 bg-[#111111] text-[#FFFFFF] dark:bg-zinc-800 dark:text-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-700 px-3 py-1.5 text-xs font-semibold transition-colors shadow-xs cursor-pointer"
           >
             <Zap className="h-3.5 w-3.5 text-amber-400" />
             <span>Rescan Email</span>
@@ -78,11 +70,11 @@ export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => 
         {/* Global Search / Command Bar Trigger */}
         <button
           onClick={() => setIsQuickScanOpen(true)}
-          className="hidden md:flex items-center gap-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/80 dark:bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-500 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors w-40 lg:w-56 cursor-pointer"
+          className="hidden md:flex items-center gap-2.5 rounded-lg border border-[#E5E5E5] dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-900/60 px-3 py-1.5 text-xs text-[#737373] hover:border-[#111111] dark:hover:border-zinc-600 hover:text-[#111111] dark:hover:text-[#FFFFFF] transition-colors w-40 lg:w-56 cursor-pointer"
         >
-          <Search className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500" />
-          <span className="flex-1 text-left truncate">Scan URL or Doc...</span>
-          <kbd className="rounded border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 px-1.5 text-[10px] text-zinc-600 dark:text-zinc-400 font-mono">
+          <Search className="h-3.5 w-3.5 text-[#737373]" />
+          <span className="flex-1 text-left truncate">Check a link or file...</span>
+          <kbd className="rounded border border-[#E5E5E5] dark:border-zinc-700 bg-white dark:bg-zinc-800 px-1.5 text-[10px] text-[#737373] font-mono">
             ⌘K
           </kbd>
         </button>
@@ -91,10 +83,10 @@ export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => 
         {!isEmailPage && (
           <button
             onClick={() => setIsQuickScanOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-zinc-900 text-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-white px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 rounded-lg bg-[#111111] text-[#FFFFFF] dark:bg-[#FFFFFF] dark:text-[#111111] hover:bg-zinc-800 dark:hover:bg-zinc-200 px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer"
           >
             <Zap className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Quick Scan</span>
+            <span className="hidden sm:inline">Quick Check</span>
           </button>
         )}
       </div>

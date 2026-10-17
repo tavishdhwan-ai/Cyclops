@@ -41,8 +41,8 @@ export const QuickScanModal: React.FC = () => {
     <Modal
       isOpen={isQuickScanOpen}
       onClose={() => setIsQuickScanOpen(false)}
-      title="Quick Security Analysis"
-      subtitle="Analyze URLs, domains, or document filenames instantly in frontend demo mode."
+      title="Quick Security Check"
+      subtitle="Inspect any suspicious web link or document file for safety."
     >
       <div className="space-y-4">
         {/* Toggle Scan Type */}

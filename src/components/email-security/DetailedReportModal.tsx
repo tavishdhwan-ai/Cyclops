@@ -37,8 +37,8 @@ export const DetailedReportModal: React.FC<DetailedReportModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="SentinelAI Comprehensive Email Threat Report"
-      subtitle="Detailed Security Telemetry & Inspection Findings • Simulated Demo Analysis"
+      title="Cyclops Email Safety Report"
+      subtitle="Security Details &amp; Inspection Findings • Personal Inspection"
       maxWidth="2xl"
     >
       <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-1">
@@ -158,7 +158,7 @@ export const DetailedReportModal: React.FC<DetailedReportModalProps> = ({
             Simulated demo analysis — Demo data — no real email or attachment was scanned
           </p>
           <p className="text-[10px] text-zinc-500">
-            Risk estimate — not a guarantee of safety. SentinelAI Phase 1 Prototype.
+            Risk estimate — not a guarantee of safety. Cyclops Personal Security.
           </p>
         </div>
 

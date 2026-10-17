@@ -20,7 +20,7 @@ export default function EmailSecurityPage() {
 
   const [isScanning, setIsScanning] = useState(true);
   const [scanProgress, setScanProgress] = useState(0);
-  const [scanStep, setScanStep] = useState('Initializing SentinelAI scanner...');
+  const [scanStep, setScanStep] = useState('Initializing Cyclops scanner...');
   const [isReportOpen, setIsReportOpen] = useState(false);
 
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -96,14 +96,14 @@ export default function EmailSecurityPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 tracking-tight">
               <Mail className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
-              Inbound Email Security Inspection
+              Email Scanner
             </h1>
             <span className="rounded-full border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-2.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-400">
               High Risk Flagged
             </span>
           </div>
           <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
-            SentinelAI automatically scans sender authentication, domain age, embedded links, and individual attachments.
+            Cyclops inspects sender authentication, domain age, embedded links, and attachments for phishing and scams.
           </p>
         </div>
 
@@ -128,7 +128,7 @@ export default function EmailSecurityPage() {
         <div className="flex items-center gap-2 text-zinc-800 dark:text-zinc-300">
           <Info className="h-4 w-4 text-zinc-500 dark:text-zinc-400 shrink-0" />
           <span>
-            <strong>Inspection Target:</strong> Inbound message with SPF/DKIM verification, domain reputation, and attachment detonation.
+            <strong>Inspection Target:</strong> Inbound message with sender verification, domain reputation, and attachment safety check.
           </span>
         </div>
         <span className="text-[11px] text-zinc-500 font-mono">
@@ -153,7 +153,7 @@ export default function EmailSecurityPage() {
           <div ref={findingsRef}>
             <SecurityFindingsList
               findings={emailFindingsData.findings}
-              title="Email Threat Findings & Phishing Indicators"
+              title="What We Found"
               subtitle={`Audited ${emailFindingsData.findings.length} parameters across sender authentication, domain age, credential forms, and attachment payloads.`}
             />
           </div>

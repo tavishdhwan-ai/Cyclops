@@ -44,7 +44,7 @@ interface SecurityFindingsListProps {
 
 export const SecurityFindingsList: React.FC<SecurityFindingsListProps> = ({
   findings,
-  title = 'Prioritized Security Findings',
+  title = 'What We Found',
   subtitle,
   checksSummary,
 }) => {

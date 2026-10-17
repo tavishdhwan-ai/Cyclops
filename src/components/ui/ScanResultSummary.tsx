@@ -71,10 +71,10 @@ export const ScanResultSummary: React.FC<ScanResultSummaryProps> = ({
       ? 'Completed checks found no known threats across inspected threat intelligence sources and heuristic rules.'
       : 'Scan could not complete all verification checks. Target integrity cannot be confirmed.');
   const resolvedCounts = findingsCounts || counts || { critical: 0, high: 0, warning: 0, info: 0, unavailable: 0 };
-  // Restrained status styling adhering strictly to monochromatic B2B SaaS specs
+  // Consumer security status styling adhering strictly to monochromatic specs
   const config = {
     malicious: {
-      title: 'Malicious',
+      title: 'Dangerous signs found',
       subheading: 'High-confidence threat signals identified',
       borderClass: 'border-red-300 dark:border-red-900/60 bg-red-50/60 dark:bg-red-950/30',
       badgeClass: 'border-red-300 dark:border-red-800 bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300',
@@ -83,7 +83,7 @@ export const ScanResultSummary: React.FC<ScanResultSummaryProps> = ({
       scoreColor: 'text-red-600 dark:text-red-400',
     },
     suspicious: {
-      title: 'Suspicious',
+      title: 'Suspicious activity detected',
       subheading: 'Anomalous signals detected; exercise caution',
       borderClass: 'border-amber-300 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/30',
       badgeClass: 'border-amber-300 dark:border-amber-800 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300',
@@ -92,7 +92,7 @@ export const ScanResultSummary: React.FC<ScanResultSummaryProps> = ({
       scoreColor: 'text-amber-600 dark:text-amber-400',
     },
     clean: {
-      title: 'No threats detected',
+      title: 'No threats detected by completed checks',
       subheading: 'Completed checks found no known threats',
       borderClass: 'border-emerald-300 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30',
       badgeClass: 'border-emerald-300 dark:border-emerald-800 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300',
@@ -133,7 +133,7 @@ export const ScanResultSummary: React.FC<ScanResultSummaryProps> = ({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Overall Verdict
+                Overall Outcome
               </span>
               <span
                 className={`rounded-md border px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide ${config.badgeClass}`}
@@ -196,7 +196,7 @@ export const ScanResultSummary: React.FC<ScanResultSummaryProps> = ({
               onClick={onScrollToFindings}
               className="flex items-center gap-1.5 rounded-lg bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-200 px-4 py-2 text-xs font-semibold text-white dark:text-zinc-900 shadow-xs transition-colors shrink-0"
             >
-              <span>Review Findings ({totalFindings})</span>
+              <span>Review What We Found ({totalFindings})</span>
               <ArrowDown className="h-3.5 w-3.5" />
             </button>
           )}

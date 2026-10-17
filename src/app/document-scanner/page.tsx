@@ -137,16 +137,16 @@ export default function DocumentScannerPage() {
         <div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
             <FileSearch className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
-            Document Security & Exploit Intelligence Scanner
+            Document Scanner
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Static multi-format security scanner inspecting embedded VBA macros, phishing HTML forms, URL misdirections, /Launch exploits, and invisible text layers.
+            Check PDFs, Office files, and attachments for hidden macros, phishing forms, unexpected links, and dangerous scripts.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="flex h-2 w-2 rounded-full bg-emerald-500"></span>
           <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-3 py-1 text-[11px] font-mono text-zinc-600 dark:text-zinc-300">
-            Engine v1.0 • Isolated Sandbox
+            Engine v1.0 • Isolated Local Check
           </div>
         </div>
       </div>
@@ -202,10 +202,10 @@ export default function DocumentScannerPage() {
             ⚠️ Executable Trojan (.pdf.exe)
           </button>
           <button
-            onClick={() => executeScanPipeline('SentinelAI_Employee_Policy_Handbook.pdf', '820 KB')}
+            onClick={() => executeScanPipeline('Clean_Document_Guide.pdf', '820 KB')}
             className="rounded-md border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 dark:hover:border-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
           >
-            ✅ Clean Corporate PDF (.pdf)
+            ✅ Clean Document (.pdf)
           </button>
         </div>
       </Card>
@@ -248,7 +248,7 @@ export default function DocumentScannerPage() {
             <div ref={docFindingsRef}>
               <SecurityFindingsList
                 findings={docFindingsData.findings}
-                title="Document Security Findings"
+                title="What We Found"
                 subtitle={`${docFindingsData.checksSummary.completed} of ${docFindingsData.checksSummary.total_checks} security checks completed (${docFindingsData.checksSummary.skipped} format-skipped${docFindingsData.checksSummary.unavailable > 0 ? `, ${docFindingsData.checksSummary.unavailable} unavailable` : ''}).`}
                 checksSummary={docFindingsData.checksSummary}
               />
@@ -596,7 +596,7 @@ export default function DocumentScannerPage() {
                     <div className="flex items-center gap-2.5">
                       <Layers className="h-4 w-4 text-zinc-600 dark:text-zinc-300" />
                       <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                        4. Document Structure & Exploit Indicators
+                        4. Hidden Document Content &amp; Exploit Indicators
                       </span>
                       {activeDoc.exploit_indicators?.suspicious_actions?.length ? (
                         <Badge level="critical">SUSPICIOUS ACTIONS DETECTED</Badge>

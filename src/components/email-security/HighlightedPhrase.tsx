@@ -57,7 +57,7 @@ export const HighlightedPhrase: React.FC<HighlightedPhraseProps> = ({ phrase, ex
           </div>
           <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">{explanation}</p>
           <div className="mt-2 pt-1.5 border-t border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-500">
-            <span>SentinelAI Signal Analysis</span>
+            <span>Cyclops Signal Analysis</span>
             <span className="text-red-500 dark:text-red-400 font-medium">Risk Score +2.5</span>
           </div>
         </div>
