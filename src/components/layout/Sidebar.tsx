@@ -12,6 +12,7 @@ import {
   History,
   Settings,
   LogIn,
+  LogOut,
 } from 'lucide-react';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { useAuth } from '../../context/AuthContext';
@@ -23,7 +24,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
-  const { user, profile } = useAuth();
+  const { user, profile, signOut } = useAuth();
 
   const navItems = [
     { name: 'Home', href: '/', icon: Home },
@@ -112,43 +113,62 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
       </div>
 
       {/* User / Session Area */}
-      <div className="flex items-center justify-between border-t border-[#E5E5E5] dark:border-zinc-800/80 pt-3 px-1">
+      <div className="border-t border-[#E5E5E5] dark:border-zinc-800/80 pt-3 px-1">
         {user ? (
-          <>
-            <Link
-              href="/settings"
-              className="flex items-center gap-2.5 min-w-0 hover:opacity-80 transition-opacity flex-1"
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Link
+                href="/settings"
+                onClick={handleLinkClick}
+                className="flex items-center gap-2.5 min-w-0 hover:opacity-80 transition-opacity flex-1"
+              >
+                <div className="h-8 w-8 rounded-full border border-[#E5E5E5] dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[#111111] dark:text-[#FFFFFF] shrink-0 font-bold text-xs">
+                  {profile.displayName
+                    ? profile.displayName.charAt(0).toUpperCase()
+                    : user.email.charAt(0).toUpperCase()}
+                </div>
+                <div className="truncate min-w-0">
+                  <p className="text-xs font-semibold text-[#111111] dark:text-zinc-200 leading-tight truncate">
+                    {profile.displayName || user.displayName || user.email.split('@')[0]}
+                  </p>
+                  <p className="text-[10px] text-[#737373] dark:text-zinc-400 truncate">{user.email}</p>
+                </div>
+              </Link>
+              <Link
+                href="/settings"
+                onClick={handleLinkClick}
+                title="Account Settings"
+                className="text-[#737373] hover:text-[#111111] dark:text-zinc-400 dark:hover:text-zinc-200 p-1"
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+
+            {/* Obvious, Accessible Sign Out Button */}
+            <button
+              type="button"
+              onClick={async () => {
+                if (setMobileOpen) setMobileOpen(false);
+                await signOut();
+              }}
+              aria-label="Sign out of Sentinel AI"
+              className="w-full flex items-center justify-center gap-2 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/60 dark:bg-red-950/20 py-2 px-3 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors cursor-pointer shadow-2xs"
             >
-              <div className="h-8 w-8 rounded-full border border-[#E5E5E5] dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-[#111111] dark:text-[#FFFFFF] shrink-0 font-bold text-xs">
-                {profile.displayName
-                  ? profile.displayName.charAt(0).toUpperCase()
-                  : user.email.charAt(0).toUpperCase()}
-              </div>
-              <div className="truncate min-w-0">
-                <p className="text-xs font-semibold text-[#111111] dark:text-zinc-200 leading-tight truncate">
-                  {profile.displayName || user.displayName || user.email.split('@')[0]}
-                </p>
-                <p className="text-[10px] text-[#737373] dark:text-zinc-400 truncate">{user.email}</p>
-              </div>
-            </Link>
-            <Link
-              href="/settings"
-              title="Account Settings"
-              className="text-[#737373] hover:text-[#111111] dark:text-zinc-400 dark:hover:text-zinc-200 p-1"
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </Link>
-          </>
+              <LogOut className="h-3.5 w-3.5 shrink-0" />
+              <span>Sign Out</span>
+            </button>
+          </div>
         ) : (
           <Link
             href="/login"
+            onClick={handleLinkClick}
             className="w-full flex items-center justify-between gap-2 rounded-lg border border-[#E5E5E5] dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-900/60 p-2 text-xs font-semibold text-zinc-800 dark:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 transition-colors"
           >
             <div className="flex items-center gap-2">
               <LogIn className="h-3.5 w-3.5 text-zinc-500" />
               <span>Sign In</span>
             </div>
-            <span className="text-[10px] font-normal text-zinc-400">Magic Link</span>
+            <span className="text-[10px] font-normal text-zinc-400">2FA Login</span>
           </Link>
         )}
       </div>

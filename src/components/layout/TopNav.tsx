@@ -3,8 +3,9 @@
 import React from 'react';
 import { usePathname } from 'next/navigation';
 import { useDemoContext } from '../../context/DemoContext';
-import { Menu, Search, Zap } from 'lucide-react';
+import { Menu, Search, Zap, LogOut } from 'lucide-react';
 import { ThemeToggle } from '../ui/ThemeToggle';
+import { useAuth } from '../../context/AuthContext';
 
 interface TopNavProps {
   mobileOpen: boolean;
@@ -14,6 +15,7 @@ interface TopNavProps {
 export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
   const { setIsQuickScanOpen, triggerRescan } = useDemoContext();
+  const { user, signOut } = useAuth();
 
   const getPageTitle = (path: string) => {
     if (path.startsWith('/emails')) return 'Email Scanner';
@@ -87,6 +89,18 @@ export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => 
           >
             <Zap className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Quick Check</span>
+          </button>
+        )}
+
+        {/* Visible Sign Out Button */}
+        {user && (
+          <button
+            onClick={() => signOut()}
+            aria-label="Sign Out"
+            className="flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/60 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+          >
+            <LogOut className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">Sign Out</span>
           </button>
         )}
       </div>

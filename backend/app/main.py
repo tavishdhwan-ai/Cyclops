@@ -241,6 +241,7 @@ from app.auth_engine import (
     complete_mobile_biometric_gate,
     finalize_computer_session,
     get_transaction_status,
+    revoke_session,
 )
 
 
@@ -255,13 +256,16 @@ async def auth_start_endpoint(
     Returns opaque transactionId and initiates Gate 1.
     """
     ip_address = request.client.host if request.client else None
-    result = start_auth_transaction(
-        email=payload.email,
-        phone_number=payload.phoneNumber,
-        user_agent=user_agent,
-        ip_address=ip_address,
-    )
-    return result
+    try:
+        result = start_auth_transaction(
+            email=payload.email,
+            phone_number=payload.phoneNumber,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.post("/api/auth/confirm-email", tags=["Sentinel Auth"])
@@ -352,6 +356,22 @@ async def auth_complete_endpoint(
         return session_info
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.post("/api/auth/logout", tags=["Sentinel Auth"])
+async def auth_logout_endpoint(
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """
+    Step 6: Revokes the authenticated session on the server.
+    """
+    raw_token = authorization
+    if raw_token and raw_token.lower().startswith("bearer "):
+        raw_token = raw_token[7:].strip()
+
+    revoked = revoke_session(token=raw_token)
+    return {"success": True, "revoked": revoked, "message": "Session invalidated."}
+
 
 
 

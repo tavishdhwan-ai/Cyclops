@@ -305,6 +305,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Sign out cleanly
   const signOut = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.warn('Backend logout notification error:', err);
+    }
+
     const supabase = createClient();
     if (supabase && configured) {
       try {

@@ -257,3 +257,96 @@ def test_session_completion_requires_both_gates():
     assert "sessionToken" in sess_data
     assert sess_data["user"]["securityTier"] == 2
     assert sess_data["user"]["email"] == "incomplete@sentinel.ai"
+
+
+def test_worldwide_international_phone_numbers():
+    """Verify phone normalization supports India, US, UK, Germany, Australia and rejects invalid numbers."""
+    # 1. India (+91)
+    resp_india = client.post(
+        "/api/auth/start",
+        json={"email": "india@sentinel.ai", "phoneNumber": "+91 98765 43210"},
+    )
+    assert resp_india.status_code == 200
+    assert "transactionId" in resp_india.json()
+
+    # 2. United Kingdom (+44)
+    resp_uk = client.post(
+        "/api/auth/start",
+        json={"email": "uk@sentinel.ai", "phoneNumber": "+44 7911 123456"},
+    )
+    assert resp_uk.status_code == 200
+
+    # 3. Germany (+49)
+    resp_de = client.post(
+        "/api/auth/start",
+        json={"email": "germany@sentinel.ai", "phoneNumber": "+49 151 23456789"},
+    )
+    assert resp_de.status_code == 200
+
+    # 4. Australia (+61)
+    resp_au = client.post(
+        "/api/auth/start",
+        json={"email": "australia@sentinel.ai", "phoneNumber": "+61 412 345 678"},
+    )
+    assert resp_au.status_code == 200
+
+    # 5. Invalid / malformed numbers rejected with 400
+    resp_invalid = client.post(
+        "/api/auth/start",
+        json={"email": "bad@sentinel.ai", "phoneNumber": "+91 123"},
+    )
+    assert resp_invalid.status_code == 400
+    assert "not a valid international mobile number" in resp_invalid.json()["detail"].lower()
+
+
+def test_logout_revokes_session():
+    """Verify that logging out revokes the session on the server."""
+    # Start and complete session
+    start_resp = client.post(
+        "/api/auth/start",
+        json={"email": "logout.test@sentinel.ai", "phoneNumber": "+919876543210"},
+    )
+    tx_id = start_resp.json()["transactionId"]
+    client.post(
+        "/api/auth/confirm-email",
+        json={"transactionId": tx_id, "email": "logout.test@sentinel.ai"},
+    )
+
+    test_token = "logout_test_tok_" + secrets.token_hex(8)
+    new_hash = hash_token(test_token)
+    expected_challenge = None
+    for h, challenge in list(_CHALLENGES.items()):
+        if challenge["transactionId"] == tx_id:
+            challenge["tokenHash"] = new_hash
+            _CHALLENGES[new_hash] = challenge
+            expected_challenge = challenge["webauthnChallenge"]
+            break
+
+    client_data_b64 = base64url_encode(json.dumps({
+        "type": "webauthn.get",
+        "challenge": expected_challenge,
+        "origin": WEBAUTHN_ORIGIN,
+    }).encode("utf-8"))
+    rp_id_hash = hashlib.sha256(WEBAUTHN_RP_ID.encode("utf-8")).digest()
+    auth_data_b64 = base64url_encode(rp_id_hash + bytes([0x05]) + (1).to_bytes(4, byteorder="big"))
+
+    client.post("/api/auth/webauthn/verify", json={
+        "mobileToken": test_token,
+        "credentialId": base64url_encode(b"logout-cred"),
+        "clientDataJSON": client_data_b64,
+        "authenticatorData": auth_data_b64,
+        "signature": base64url_encode(b"sig"),
+    })
+
+    comp_resp = client.post("/api/auth/complete", json={"transactionId": tx_id})
+    session_token = comp_resp.json()["sessionToken"]
+
+    # Call logout endpoint with Bearer token
+    logout_resp = client.post(
+        "/api/auth/logout",
+        headers={"Authorization": f"Bearer {session_token}"},
+    )
+    assert logout_resp.status_code == 200
+    assert logout_resp.json()["success"] is True
+    assert logout_resp.json()["revoked"] is True
+

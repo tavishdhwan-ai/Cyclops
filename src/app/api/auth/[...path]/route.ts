@@ -61,6 +61,11 @@ async function forwardRequest(request: NextRequest, pathParts: string[]) {
       });
     }
 
+    // If logging out, delete session cookie
+    if (path === 'logout') {
+      response.cookies.delete('sentinel_session');
+    }
+
     return response;
   } catch (err: unknown) {
     return NextResponse.json(

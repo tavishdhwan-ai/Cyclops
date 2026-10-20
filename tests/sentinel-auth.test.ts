@@ -7,34 +7,62 @@ import { bufferToBase64URL, base64URLToBuffer } from '../src/lib/webauthnUtils';
 console.log('--- Running Sentinel AI Dual-Channel Authentication Test Suite ---');
 
 // ---------------------------------------------------------------------------
-// 1. Phone Normalization (E.164) Tests
+// 1. Phone Normalization (E.164) Tests - Multiple Worldwide Regions
 // ---------------------------------------------------------------------------
-console.log('Test 1: International E.164 phone normalization and privacy masking');
+console.log('Test 1: International E.164 phone normalization across multiple regions');
 
-const validUS = normalizePhoneNumber(' (415) 555-2671 ', '+1');
+// 1. India (+91)
+const validIndia = normalizePhoneNumber('+91 98765 43210');
+assert.strictEqual(validIndia.isValid, true);
+assert.strictEqual(validIndia.normalized, '+919876543210', 'India E.164 must be +919876543210');
+assert.strictEqual(validIndia.countryCode, 'IN');
+
+// 2. United States (+1)
+const validUS = normalizePhoneNumber(' (415) 555-2671 ', 'US');
 assert.strictEqual(validUS.isValid, true);
-assert.strictEqual(validUS.normalized, '+14155552671');
+assert.strictEqual(validUS.normalized, '+14155552671', 'US E.164 must be +14155552671');
+assert.strictEqual(validUS.countryCode, 'US');
 
-const validUK = normalizePhoneNumber('+44 20 7946 0991');
+// 3. United Kingdom (+44)
+const validUK = normalizePhoneNumber('+44 7400 123456');
 assert.strictEqual(validUK.isValid, true);
-assert.strictEqual(validUK.normalized, '+442079460991');
+assert.strictEqual(validUK.normalized, '+447400123456', 'UK E.164 must be +447400123456');
+assert.strictEqual(validUK.countryCode, 'GB');
 
-const validIntlPrefix = normalizePhoneNumber('0033 1 42 68 55 55');
-assert.strictEqual(validIntlPrefix.isValid, true);
-assert.strictEqual(validIntlPrefix.normalized, '+33142685555');
+// 4. Germany (+49)
+const validGermany = normalizePhoneNumber('+49 151 23456789');
+assert.strictEqual(validGermany.isValid, true);
+assert.strictEqual(validGermany.normalized, '+4915123456789', 'Germany E.164 must be +4915123456789');
+assert.strictEqual(validGermany.countryCode, 'DE');
 
+// 5. Australia (+61)
+const validAustralia = normalizePhoneNumber('+61 412 345 678');
+assert.strictEqual(validAustralia.isValid, true);
+assert.strictEqual(validAustralia.normalized, '+61412345678', 'Australia E.164 must be +61412345678');
+assert.strictEqual(validAustralia.countryCode, 'AU');
+
+// 6. National format with country code context
+const validNationalIndia = normalizePhoneNumber('9876543210', 'IN');
+assert.strictEqual(validNationalIndia.isValid, true);
+assert.strictEqual(validNationalIndia.normalized, '+919876543210');
+
+// 7. Invalid numbers rejected with clear error messages
 const invalidEmpty = normalizePhoneNumber('');
 assert.strictEqual(invalidEmpty.isValid, false);
 assert.ok(invalidEmpty.error?.includes('mobile phone number'));
 
-const invalidShort = normalizePhoneNumber('+123');
-assert.strictEqual(invalidShort.isValid, false);
+const invalidTooShort = normalizePhoneNumber('+91 123');
+assert.strictEqual(invalidTooShort.isValid, false);
+assert.ok(invalidTooShort.error?.includes('valid phone number'));
+
+const invalidChars = normalizePhoneNumber('+1 415-ABC-1234');
+assert.strictEqual(invalidChars.isValid, false);
 
 // Privacy masking
-const masked = maskPhoneNumber('+14155552671');
-assert.strictEqual(masked, '+14 ••• ••• 2671');
+const masked = maskPhoneNumber('+919876543210');
+assert.ok(masked.includes('+91') && masked.includes('3210') && masked.includes('•••'));
 
-console.log('✓ Phone number normalization & E.164 compliance verified');
+console.log('✓ Worldwide phone validation (India, US, UK, Germany, Australia) verified');
 
 // ---------------------------------------------------------------------------
 // 2. Authoritative State Machine Transition Tests

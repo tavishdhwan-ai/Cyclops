@@ -21,6 +21,28 @@ from app.webauthn import (
     WEBAUTHN_RP_ID,
     WEBAUTHN_ORIGIN,
 )
+import phonenumbers
+from phonenumbers import NumberParseException
+
+def validate_and_normalize_phone(raw_phone: str) -> str:
+    """
+    Validates and normalizes phone numbers worldwide to international E.164 format.
+    Ensures country code prefix (+) and rejects invalid or impossible numbers.
+    """
+    if not raw_phone or not isinstance(raw_phone, str):
+        raise ValueError("Mobile phone number is required.")
+
+    cleaned = raw_phone.strip()
+    if not cleaned.startswith("+"):
+        cleaned = "+" + cleaned
+
+    try:
+        parsed = phonenumbers.parse(cleaned, None)
+        if not phonenumbers.is_valid_number(parsed):
+            raise ValueError(f"The number {raw_phone} is not a valid international mobile number.")
+        return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+    except NumberParseException as e:
+        raise ValueError(f"Invalid international phone format: {str(e)}")
 
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "sentinel-auth-secret-key-32-bytes-minimum!")
 APP_PUBLIC_URL = os.getenv("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
@@ -38,7 +60,7 @@ STATE_EXPIRED = "EXPIRED"
 STATE_REVOKED = "REVOKED"
 STATE_FAILED = "FAILED"
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 # Authoritative In-Memory Repository (with persistence hooks to PostgreSQL/Supabase)
 _TRANSACTIONS: Dict[str, Dict[str, Any]] = {}
@@ -109,6 +131,7 @@ def start_auth_transaction(
     Step 1: Initiates a new two-channel authentication transaction.
     Enforces email and phone association. Sets initial state to EMAIL_PENDING.
     """
+    normalized_phone = validate_and_normalize_phone(phone_number)
     tx_id = f"tx_{secrets.token_hex(16)}"
     now = time.time()
     expires_at = now + 900  # 15 minutes lifetime
@@ -116,7 +139,7 @@ def start_auth_transaction(
     transaction_record = {
         "id": tx_id,
         "email": email.strip().lower(),
-        "phoneNumber": phone_number.strip(),
+        "phoneNumber": normalized_phone,
         "state": STATE_EMAIL_PENDING,
         "emailVerified": False,
         "mobileVerified": False,
@@ -473,3 +496,34 @@ def get_transaction_status(transaction_id: str) -> Dict[str, Any]:
             "whatsappError": tx.get("whatsappError"),
             "expiresAt": tx["expiresAt"],
         }
+
+
+def revoke_session(session_id: Optional[str] = None, token: Optional[str] = None) -> bool:
+    """
+    Revokes the active authenticated session on the server.
+    """
+    target_id = session_id
+    if not target_id and token:
+        try:
+            payload = jwt.decode(token, options={"verify_signature": False})
+            target_id = payload.get("session_id")
+        except Exception:
+            pass
+
+    revoked_user_id = None
+    with _lock:
+        if target_id and target_id in _ACTIVE_SESSIONS:
+            _ACTIVE_SESSIONS[target_id]["isRevoked"] = True
+            revoked_user_id = _ACTIVE_SESSIONS[target_id].get("userId")
+
+    if revoked_user_id is not None:
+        record_audit(
+            tx_id=None,
+            user_id=revoked_user_id,
+            event="SESSION_REVOKED",
+            status="SUCCESS",
+            details={"session_id": target_id},
+        )
+        return True
+    return False
+

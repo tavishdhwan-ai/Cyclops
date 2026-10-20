@@ -8,7 +8,6 @@ import { normalizePhoneNumber, maskPhoneNumber } from '../../lib/phoneUtils';
 import {
   Shield,
   Mail,
-  Smartphone,
   ArrowRight,
   CheckCircle2,
   AlertTriangle,
@@ -17,8 +16,10 @@ import {
   ExternalLink,
   Info,
   Clock,
-  Sparkles,
+  Smartphone,
 } from 'lucide-react';
+import { InternationalPhoneInput } from '../../components/ui/InternationalPhoneInput';
+
 
 function LoginFormContent() {
   const router = useRouter();
@@ -62,7 +63,6 @@ function LoginFormContent() {
     mobileVerificationUrl?: string;
   } | null>(null);
 
-  const [pollCount, setPollCount] = useState(0);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
 
@@ -104,8 +104,9 @@ function LoginFormContent() {
 
       setActiveTx(result.transactionId);
       setFlowStep('email_sent');
-    } catch (err: any) {
-      setGeneralError(err.message || 'An unexpected error occurred. Please try again.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.';
+      setGeneralError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -147,7 +148,6 @@ function LoginFormContent() {
     if (!activeTx) return;
 
     const interval = setInterval(() => {
-      setPollCount((prev) => prev + 1);
       pollSessionStatus();
     }, 2500);
 
@@ -180,8 +180,9 @@ function LoginFormContent() {
         mobileVerificationUrl: data.mobileVerificationUrl,
       });
       setFlowStep('mobile_waiting');
-    } catch (err: any) {
-      setGeneralError(err.message || 'Failed to simulate email verification.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to simulate email verification.';
+      setGeneralError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -255,7 +256,7 @@ function LoginFormContent() {
                 )}
               </div>
 
-              {/* Gate 2: Mobile Number for WhatsApp */}
+              {/* Gate 2: Mobile Number for WhatsApp with Worldwide Country Selector */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label
@@ -264,37 +265,20 @@ function LoginFormContent() {
                   >
                     Mobile Phone Number (WhatsApp)
                   </label>
-                  <span className="text-[10px] text-zinc-400">International E.164</span>
+                  <span className="text-[10px] text-zinc-400">All Countries Supported</span>
                 </div>
-                <div className="relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                    <Smartphone className="h-4 w-4 text-zinc-400" />
-                  </div>
-                  <input
-                    id="phone-input"
-                    type="tel"
-                    autoComplete="tel"
-                    value={phone}
-                    onChange={(e) => {
-                      setPhone(e.target.value);
-                      if (phoneError) setPhoneError(null);
-                    }}
-                    placeholder="+1 415 555 2671"
-                    disabled={isLoading}
-                    className={`block w-full rounded-lg border pl-9 pr-3 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 transition-colors ${
-                      phoneError
-                        ? 'border-red-400 focus:border-red-500 focus:ring-red-200 dark:focus:ring-red-900/40 bg-red-50/20'
-                        : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:border-zinc-900 dark:focus:border-zinc-100 focus:ring-zinc-200 dark:focus:ring-zinc-800'
-                    }`}
-                  />
-                </div>
-                {phoneError && (
-                  <p className="text-[11px] font-medium text-red-600 dark:text-red-400" role="alert">
-                    {phoneError}
-                  </p>
-                )}
+                <InternationalPhoneInput
+                  id="phone-input"
+                  value={phone}
+                  onChange={(normalizedVal, isValid, err) => {
+                    setPhone(normalizedVal);
+                    if (phoneError) setPhoneError(err || null);
+                  }}
+                  disabled={isLoading}
+                  error={phoneError}
+                />
                 <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                  We will send a one-time biometric verification link to your WhatsApp upon email verification.
+                  Select your country code and enter your mobile number. We will send a one-time biometric verification link to your WhatsApp upon email verification.
                 </p>
               </div>
 
