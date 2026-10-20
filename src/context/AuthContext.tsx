@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '../lib/supabase/client';
 import { validateEmail, formatAuthError } from '../lib/authUtils';
+import { normalizePhoneNumber } from '../lib/phoneUtils';
 
 export interface UserProfile {
   displayName: string;
@@ -11,13 +12,16 @@ export interface UserProfile {
   concerns: string[];
   experience: 'beginner' | 'intermediate' | 'advanced' | '';
   onboardingCompleted: boolean;
+  securityTier?: number;
 }
 
 export interface AuthUser {
   id: string;
   email: string;
+  phoneNumber?: string;
   displayName?: string;
   avatarUrl?: string;
+  securityTier?: number;
 }
 
 interface AuthContextType {
@@ -25,13 +29,19 @@ interface AuthContextType {
   profile: UserProfile;
   isLoading: boolean;
   isConfigured: boolean;
-  isDemoSession: boolean;
-  sendMagicLink: (email: string, redirectTo?: string) => Promise<{ success: boolean; error?: string; isDemo?: boolean }>;
-  signInWithGoogle: (redirectTo?: string) => Promise<{ success: boolean; error?: string }>;
+  startSentinelAuth: (
+    email: string,
+    phoneNumber: string
+  ) => Promise<{ success: boolean; transactionId?: string; error?: string }>;
+  confirmEmailGate: (
+    transactionId: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  completeSession: (
+    transactionId: string
+  ) => Promise<{ success: boolean; user?: AuthUser; error?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
   deleteAccount: () => Promise<{ success: boolean; error?: string }>;
-  completeDemoSignIn: (email: string) => Promise<void>;
 }
 
 const defaultProfile: UserProfile = {
@@ -40,12 +50,13 @@ const defaultProfile: UserProfile = {
   concerns: [],
   experience: '',
   onboardingCompleted: false,
+  securityTier: 2,
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_PROFILE_KEY = 'cyclops_user_profile';
-const LOCAL_STORAGE_DEMO_USER_KEY = 'cyclops_demo_user';
+const LOCAL_STORAGE_PROFILE_KEY = 'sentinel_user_profile';
+const LOCAL_STORAGE_USER_KEY = 'sentinel_auth_user';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
@@ -54,8 +65,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(() => {
     if (typeof window !== 'undefined') {
       try {
-        const savedDemo = localStorage.getItem(LOCAL_STORAGE_DEMO_USER_KEY);
-        if (savedDemo) return JSON.parse(savedDemo);
+        const saved = localStorage.getItem(LOCAL_STORAGE_USER_KEY);
+        if (saved) return JSON.parse(saved);
       } catch {}
     }
     return null;
@@ -72,173 +83,190 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(() => configured);
-  const [isDemoSession, setIsDemoSession] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return Boolean(localStorage.getItem(LOCAL_STORAGE_DEMO_USER_KEY));
-      } catch {}
-    }
-    return false;
-  });
 
-  // Load saved profile or active session on mount
+  // Restore authenticated session on mount
   useEffect(() => {
     const supabase = createClient();
 
-    if (!supabase || !configured) {
-      return;
-    }
-
-    // 1. Get initial active session from Supabase
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const authUser: AuthUser = {
-          id: session.user.id,
-          email: session.user.email || '',
-          displayName: session.user.user_metadata?.display_name || session.user.user_metadata?.full_name || '',
-          avatarUrl: session.user.user_metadata?.avatar_url,
-        };
-        setUser(authUser);
-        setIsDemoSession(false);
-
-        // Restore profile from metadata or backend
-        const savedProfile = session.user.user_metadata?.cyclops_profile;
-        if (savedProfile) {
-          setProfile(savedProfile);
-        } else {
-          // Check local fallback
+    // 1. Check Supabase session if configured
+    if (supabase && configured) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          const authUser: AuthUser = {
+            id: session.user.id,
+            email: session.user.email || '',
+            phoneNumber: session.user.phone,
+            displayName: session.user.user_metadata?.display_name || session.user.user_metadata?.full_name || '',
+            avatarUrl: session.user.user_metadata?.avatar_url,
+            securityTier: 2,
+          };
+          setUser(authUser);
           try {
-            const local = localStorage.getItem(LOCAL_STORAGE_PROFILE_KEY);
-            if (local) setProfile(JSON.parse(local));
+            localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(authUser));
           } catch {}
+
+          const savedProfile = session.user.user_metadata?.cyclops_profile;
+          if (savedProfile) {
+            setProfile(savedProfile);
+          }
         }
-      }
-      setIsLoading(false);
-    });
+        setIsLoading(false);
+      });
 
-    // 2. Listen to ongoing auth changes (sign in, sign out, token refresh)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const authUser: AuthUser = {
-          id: session.user.id,
-          email: session.user.email || '',
-          displayName: session.user.user_metadata?.display_name || session.user.user_metadata?.full_name || '',
-          avatarUrl: session.user.user_metadata?.avatar_url,
-        };
-        setUser(authUser);
-        setIsDemoSession(false);
-
-        const savedProfile = session.user.user_metadata?.cyclops_profile;
-        if (savedProfile) {
-          setProfile(savedProfile);
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (session?.user) {
+          const authUser: AuthUser = {
+            id: session.user.id,
+            email: session.user.email || '',
+            phoneNumber: session.user.phone,
+            displayName: session.user.user_metadata?.display_name || session.user.user_metadata?.full_name || '',
+            avatarUrl: session.user.user_metadata?.avatar_url,
+            securityTier: 2,
+          };
+          setUser(authUser);
+          try {
+            localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(authUser));
+          } catch {}
+        } else {
+          setUser(null);
+          setProfile(defaultProfile);
         }
-      } else {
-        setUser(null);
-        setProfile(defaultProfile);
-      }
-      setIsLoading(false);
-    });
+        setIsLoading(false);
+      });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+      return () => {
+        subscription.unsubscribe();
+      };
+    }
   }, [configured]);
 
-  // Request passwordless email magic link
-  const sendMagicLink = useCallback(
-    async (email: string, redirectTo?: string): Promise<{ success: boolean; error?: string; isDemo?: boolean }> => {
-      const emailValidation = validateEmail(email);
-      if (!emailValidation.isValid) {
-        return { success: false, error: emailValidation.error };
+  // Step 1: Start Sentinel Two-Channel Authentication
+  const startSentinelAuth = useCallback(
+    async (
+      email: string,
+      phoneNumber: string
+    ): Promise<{ success: boolean; transactionId?: string; error?: string }> => {
+      const emailVal = validateEmail(email);
+      if (!emailVal.isValid) {
+        return { success: false, error: emailVal.error };
       }
 
-      const supabase = createClient();
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const callbackUrl = redirectTo || `${origin}/auth/callback`;
-
-      if (!supabase || !configured) {
-        // Safe development / demo mode fallback when Supabase keys are not yet configured
-        return { success: true, isDemo: true };
+      const phoneVal = normalizePhoneNumber(phoneNumber);
+      if (!phoneVal.isValid) {
+        return { success: false, error: phoneVal.error };
       }
 
       try {
-        const { error } = await supabase.auth.signInWithOtp({
-          email: emailValidation.normalized,
-          options: {
-            emailRedirectTo: callbackUrl,
-            shouldCreateUser: true,
-          },
+        // 1. Call server to initiate authoritative transaction
+        const res = await fetch('/api/auth/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: emailVal.normalized,
+            phoneNumber: phoneVal.normalized,
+          }),
         });
 
-        if (error) {
-          return { success: false, error: formatAuthError(error) };
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          return { success: false, error: errData.detail || 'Failed to start authentication transaction.' };
         }
 
-        return { success: true };
-      } catch (err: unknown) {
-        return { success: false, error: formatAuthError(err) };
-      }
-    },
-    [configured]
-  );
+        const data = await res.json();
+        const transactionId = data.transactionId;
 
-  // Google OAuth sign-in
-  const signInWithGoogle = useCallback(
-    async (redirectTo?: string): Promise<{ success: boolean; error?: string }> => {
-      const supabase = createClient();
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const callbackUrl = redirectTo || `${origin}/auth/callback`;
-
-      if (!supabase || !configured) {
-        return {
-          success: false,
-          error: 'Google Sign-In requires active Supabase credentials in .env.local with Google OAuth provider enabled.',
-        };
-      }
-
-      try {
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: callbackUrl,
-            queryParams: {
-              access_type: 'offline',
-              prompt: 'select_account',
+        // 2. Dispatch genuine email magic link via Supabase if configured
+        const supabase = createClient();
+        if (supabase && configured) {
+          const origin = typeof window !== 'undefined' ? window.location.origin : '';
+          const callbackUrl = `${origin}/auth/callback?tx=${transactionId}`;
+          const { error } = await supabase.auth.signInWithOtp({
+            email: emailVal.normalized,
+            options: {
+              emailRedirectTo: callbackUrl,
+              shouldCreateUser: true,
             },
-          },
-        });
+          });
 
-        if (error) {
-          return { success: false, error: formatAuthError(error) };
+          if (error) {
+            return { success: false, error: formatAuthError(error) };
+          }
         }
 
-        return { success: true };
+        return { success: true, transactionId };
       } catch (err: unknown) {
-        return { success: false, error: formatAuthError(err) };
+        const msg = err instanceof Error ? err.message : 'Network error initiating authentication.';
+        return { success: false, error: msg };
       }
     },
     [configured]
   );
 
-  // Demo sign-in completion (for previewing when Supabase keys are pending)
-  const completeDemoSignIn = useCallback(async (email: string) => {
-    const emailValidation = validateEmail(email);
-    const normalizedEmail = emailValidation.isValid ? emailValidation.normalized : 'user@example.com';
-    const demoUser: AuthUser = {
-      id: 'demo-user-' + Math.random().toString(36).substring(2, 9),
-      email: normalizedEmail,
-      displayName: normalizedEmail.split('@')[0],
-    };
-    setUser(demoUser);
-    setIsDemoSession(true);
-    try {
-      localStorage.setItem(LOCAL_STORAGE_DEMO_USER_KEY, JSON.stringify(demoUser));
-    } catch {}
-  }, []);
+  // Step 2: Confirm Email Gate 1
+  const confirmEmailGate = useCallback(
+    async (transactionId: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const res = await fetch('/api/auth/confirm-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactionId, email: user?.email || '' }),
+        });
 
-  // Update profile and onboarding answers
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          return { success: false, error: errData.detail || 'Failed to confirm email gate.' };
+        }
+
+        return { success: true };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Error confirming email gate.';
+        return { success: false, error: msg };
+      }
+    },
+    [user]
+  );
+
+  // Step 3: Complete Computer Session (revalidates both gates on server)
+  const completeSession = useCallback(
+    async (transactionId: string): Promise<{ success: boolean; user?: AuthUser; error?: string }> => {
+      try {
+        const res = await fetch('/api/auth/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactionId }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          return { success: false, error: errData.detail || 'Server-side session authorization failed.' };
+        }
+
+        const data = await res.json();
+        const authUser: AuthUser = {
+          id: data.user.id,
+          email: data.user.email,
+          phoneNumber: data.user.phoneNumber,
+          displayName: data.user.displayName,
+          securityTier: data.user.securityTier || 2,
+        };
+
+        setUser(authUser);
+        try {
+          localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(authUser));
+        } catch {}
+
+        return { success: true, user: authUser };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Failed to finalize authenticated session.';
+        return { success: false, error: msg };
+      }
+    },
+    []
+  );
+
+  // Update profile preferences
   const updateProfile = useCallback(
     async (updates: Partial<UserProfile>): Promise<{ success: boolean; error?: string }> => {
       const updated: UserProfile = { ...profile, ...updates };
@@ -251,30 +279,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const supabase = createClient();
       if (supabase && configured && user) {
         try {
-          const { error } = await supabase.auth.updateUser({
+          await supabase.auth.updateUser({
             data: {
               cyclops_profile: updated,
               display_name: updated.displayName || user.displayName,
             },
           });
-          if (error) {
-            console.warn('Profile update warning:', error);
-          }
         } catch (e) {
           console.warn('Could not sync profile to Supabase user metadata:', e);
         }
       }
 
-      // Also sync to backend API if available
       try {
         await fetch('http://127.0.0.1:8000/api/user/profile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: user?.id, ...updated }),
         });
-      } catch {
-        // Backend optional in client offline states
-      }
+      } catch {}
 
       return { success: true };
     },
@@ -293,21 +315,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      localStorage.removeItem(LOCAL_STORAGE_DEMO_USER_KEY);
+      localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
       localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
+      // Remove sentinel_session cookie
+      document.cookie = 'sentinel_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
     } catch {}
 
     setUser(null);
     setProfile(defaultProfile);
-    setIsDemoSession(false);
     router.push('/login');
   }, [configured, router]);
 
-  // Delete account end-to-end
+  // Account deletion
   const deleteAccount = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'No active session' };
 
-    // 1. Call backend account deletion
     try {
       await fetch('http://127.0.0.1:8000/api/user/account', {
         method: 'DELETE',
@@ -318,7 +340,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Backend account deletion error:', e);
     }
 
-    // 2. Sign out and clear local state
     await signOut();
     return { success: true };
   }, [user, signOut]);
@@ -330,13 +351,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile,
         isLoading,
         isConfigured: configured,
-        isDemoSession,
-        sendMagicLink,
-        signInWithGoogle,
+        startSentinelAuth,
+        confirmEmailGate,
+        completeSession,
         signOut,
         updateProfile,
         deleteAccount,
-        completeDemoSignIn,
       }}
     >
       {children}

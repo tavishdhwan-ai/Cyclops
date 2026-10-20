@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx tests/findings.test.ts && npx tsx tests/theme.test.ts && npx tsx tests/auth.test.ts"
+    "test": "npx tsx tests/findings.test.ts && npx tsx tests/theme.test.ts && npx tsx tests/auth.test.ts && npx tsx tests/sentinel-auth.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

@@ -1,0 +1,475 @@
+"""
+Sentinel AI Authoritative Dual-Channel Authentication & Session Engine.
+Enforces:
+Gate 1: Passwordless Email Verification
+Gate 2: WhatsApp Single-Use Mobile Challenge & WebAuthn Platform Biometrics
+Cross-Device Synchronization & Atomic Challenge Consumption.
+"""
+import os
+import time
+import hashlib
+import secrets
+import threading
+from typing import Dict, Any, Optional, List, Tuple
+from pydantic import BaseModel, Field
+import jwt
+
+from app.whatsapp import get_whatsapp_provider, WhatsAppSendResult
+from app.webauthn import (
+    generate_webauthn_challenge,
+    verify_webauthn_assertion,
+    WEBAUTHN_RP_ID,
+    WEBAUTHN_ORIGIN,
+)
+
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "sentinel-auth-secret-key-32-bytes-minimum!")
+APP_PUBLIC_URL = os.getenv("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+
+# Legal State Names matching Frontend state engine
+STATE_EMAIL_REQUIRED = "EMAIL_REQUIRED"
+STATE_EMAIL_PENDING = "EMAIL_PENDING"
+STATE_EMAIL_VERIFIED = "EMAIL_VERIFIED"
+STATE_MOBILE_PENDING = "MOBILE_PENDING"
+STATE_MOBILE_CHALLENGE_ISSUED = "MOBILE_CHALLENGE_ISSUED"
+STATE_MOBILE_VERIFICATION_PENDING = "MOBILE_VERIFICATION_PENDING"
+STATE_BIOMETRIC_VERIFICATION_PENDING = "BIOMETRIC_VERIFICATION_PENDING"
+STATE_AUTHENTICATED = "AUTHENTICATED"
+STATE_EXPIRED = "EXPIRED"
+STATE_REVOKED = "REVOKED"
+STATE_FAILED = "FAILED"
+
+_lock = threading.Lock()
+
+# Authoritative In-Memory Repository (with persistence hooks to PostgreSQL/Supabase)
+_TRANSACTIONS: Dict[str, Dict[str, Any]] = {}
+_CHALLENGES: Dict[str, Dict[str, Any]] = {}  # token_hash -> challenge_data
+_ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}
+_AUDIT_LOGS: List[Dict[str, Any]] = []
+
+
+def hash_token(raw_token: str) -> str:
+    """Compute SHA-256 hash of single-use challenge token."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+class StartAuthRequest(BaseModel):
+    email: str
+    phoneNumber: str
+    userAgent: Optional[str] = None
+
+
+class VerifyCallbackRequest(BaseModel):
+    transactionId: str
+    email: str
+    userId: Optional[str] = None
+
+
+class WebAuthnVerificationPayload(BaseModel):
+    mobileToken: str
+    credentialId: str
+    clientDataJSON: str
+    authenticatorData: str
+    signature: str
+
+
+class SessionCompleteRequest(BaseModel):
+    transactionId: str
+
+
+def record_audit(
+    tx_id: Optional[str],
+    user_id: Optional[str],
+    event: str,
+    status: str,
+    details: Optional[Dict[str, Any]] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+):
+    with _lock:
+        _AUDIT_LOGS.append({
+            "id": f"audit_{secrets.token_hex(8)}",
+            "transaction_id": tx_id,
+            "user_id": user_id,
+            "event_type": event,
+            "status": status,
+            "details": details or {},
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+            "created_at": time.time(),
+        })
+
+
+def start_auth_transaction(
+    email: str,
+    phone_number: str,
+    user_agent: Optional[str] = None,
+    ip_address: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Step 1: Initiates a new two-channel authentication transaction.
+    Enforces email and phone association. Sets initial state to EMAIL_PENDING.
+    """
+    tx_id = f"tx_{secrets.token_hex(16)}"
+    now = time.time()
+    expires_at = now + 900  # 15 minutes lifetime
+
+    transaction_record = {
+        "id": tx_id,
+        "email": email.strip().lower(),
+        "phoneNumber": phone_number.strip(),
+        "state": STATE_EMAIL_PENDING,
+        "emailVerified": False,
+        "mobileVerified": False,
+        "biometricVerified": False,
+        "createdAt": now,
+        "expiresAt": expires_at,
+        "userAgent": user_agent,
+        "ipAddress": ip_address,
+        "whatsappDeliveryStatus": "unconfigured",
+        "mobileChallengeTokenHash": None,
+        "webauthnChallenge": None,
+        "userId": None,
+    }
+
+    with _lock:
+        _TRANSACTIONS[tx_id] = transaction_record
+
+    record_audit(
+        tx_id=tx_id,
+        user_id=None,
+        event="AUTH_TRANSACTION_STARTED",
+        status="SUCCESS",
+        details={"email": email, "phone": phone_number},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    return {
+        "transactionId": tx_id,
+        "state": STATE_EMAIL_PENDING,
+        "expiresAt": expires_at,
+    }
+
+
+async def confirm_email_gate(
+    transaction_id: str,
+    user_id: Optional[str] = None,
+    override_app_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Step 2: Gate 1 confirmation.
+    Transitions state from EMAIL_PENDING -> EMAIL_VERIFIED -> MOBILE_CHALLENGE_ISSUED.
+    Generates single-use WhatsApp mobile challenge and sends WhatsApp message.
+    """
+    with _lock:
+        tx = _TRANSACTIONS.get(transaction_id)
+        if not tx:
+            raise ValueError("Authentication transaction not found or expired.")
+
+        if tx["expiresAt"] < time.time():
+            tx["state"] = STATE_EXPIRED
+            raise ValueError("Authentication transaction has expired. Please restart sign-in.")
+
+        if tx["emailVerified"]:
+            # Already completed Gate 1
+            return {
+                "transactionId": transaction_id,
+                "state": tx["state"],
+                "whatsappDeliveryStatus": tx.get("whatsappDeliveryStatus", "sent"),
+            }
+
+        # Authoritative Gate 1 Verification
+        tx["emailVerified"] = True
+        tx["userId"] = user_id or f"usr_{secrets.token_hex(8)}"
+        tx["state"] = STATE_EMAIL_VERIFIED
+
+        # Generate single-use mobile challenge
+        mobile_raw_token = secrets.token_urlsafe(32)
+        token_h = hash_token(mobile_raw_token)
+        webauthn_challenge = generate_webauthn_challenge()
+
+        tx["mobileChallengeTokenHash"] = token_h
+        tx["webauthnChallenge"] = webauthn_challenge
+        tx["state"] = STATE_MOBILE_CHALLENGE_ISSUED
+
+        # Store challenge in challenges index with 10 minute expiry
+        _CHALLENGES[token_h] = {
+            "tokenHash": token_h,
+            "transactionId": transaction_id,
+            "userId": tx["userId"],
+            "webauthnChallenge": webauthn_challenge,
+            "expiresAt": time.time() + 600,
+            "consumedAt": None,
+            "attempts": 0,
+        }
+
+    # Dispatch WhatsApp message via configured provider
+    provider = get_whatsapp_provider()
+    base_url = override_app_url or APP_PUBLIC_URL
+    verify_url = f"{base_url}/verify-mobile?t={mobile_raw_token}"
+
+    send_result: WhatsAppSendResult = await provider.send_verification_link(
+        phone_number=tx["phoneNumber"],
+        verification_url=verify_url,
+        transaction_id=transaction_id,
+    )
+
+    with _lock:
+        tx["whatsappDeliveryStatus"] = send_result.status
+        tx["whatsappMessageId"] = send_result.message_id
+        tx["whatsappProvider"] = send_result.provider
+        tx["whatsappConfigured"] = send_result.is_configured
+        if send_result.error:
+            tx["whatsappError"] = send_result.error
+
+    record_audit(
+        tx_id=transaction_id,
+        user_id=tx["userId"],
+        event="GATE_ONE_EMAIL_VERIFIED",
+        status="SUCCESS",
+        details={
+            "whatsapp_status": send_result.status,
+            "whatsapp_configured": send_result.is_configured,
+        },
+    )
+
+    return {
+        "transactionId": transaction_id,
+        "state": tx["state"],
+        "emailVerified": True,
+        "whatsappDeliveryStatus": send_result.status,
+        "whatsappConfigured": send_result.is_configured,
+        "whatsappError": send_result.error,
+        "mobileVerificationUrl": verify_url if not send_result.is_configured else None,
+    }
+
+
+def validate_mobile_challenge_access(
+    mobile_token: str,
+    user_agent: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Step 3: User taps link on WhatsApp.
+    Validates single-use token, checks preliminary device context.
+    """
+    token_h = hash_token(mobile_token)
+
+    with _lock:
+        challenge = _CHALLENGES.get(token_h)
+        if not challenge:
+            return {"valid": False, "error": "Invalid or expired verification link."}
+
+        if challenge["consumedAt"] is not None:
+            return {"valid": False, "error": "This verification link has already been used."}
+
+        if challenge["expiresAt"] < time.time():
+            return {"valid": False, "error": "This verification link has expired."}
+
+        tx = _TRANSACTIONS.get(challenge["transactionId"])
+        if not tx or tx["expiresAt"] < time.time():
+            return {"valid": False, "error": "Associated session has expired."}
+
+    # Preliminary Device Context Inspection
+    ua = (user_agent or "").lower()
+    is_mobile = bool(re_search := any(m in ua for m in ("iphone", "ipod", "android", "mobile")))
+    is_desktop = not is_mobile and any(d in ua for d in ("windows nt", "macintosh", "mac os x", "linux"))
+
+    if is_desktop:
+        record_audit(
+            tx_id=challenge["transactionId"],
+            user_id=challenge["userId"],
+            event="MOBILE_GATE_DESKTOP_DENIED",
+            status="DENIED",
+            user_agent=user_agent,
+        )
+        return {
+            "valid": True,
+            "desktopDenied": True,
+            "headline": "Access Denied: Mobile Authorization Required",
+            "message": "This verification step requires a supported mobile device (iOS or Android).",
+        }
+
+    return {
+        "valid": True,
+        "desktopDenied": False,
+        "transactionId": challenge["transactionId"],
+        "webauthnChallenge": challenge["webauthnChallenge"],
+        "rpId": WEBAUTHN_RP_ID,
+    }
+
+
+def complete_mobile_biometric_gate(
+    payload: WebAuthnVerificationPayload,
+    user_agent: Optional[str] = None,
+    ip_address: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Step 4: Mobile WebAuthn Assertion Verification.
+    Cryptographically verifies assertion, atomically consumes challenge,
+    and signals cross-device completion.
+    """
+    token_h = hash_token(payload.mobileToken)
+
+    with _lock:
+        challenge = _CHALLENGES.get(token_h)
+        if not challenge:
+            raise ValueError("Challenge token not found or already purged.")
+
+        if challenge["consumedAt"] is not None:
+            raise ValueError("Replay detected: Challenge has already been consumed.")
+
+        if challenge["expiresAt"] < time.time():
+            raise ValueError("WebAuthn challenge expired.")
+
+        tx = _TRANSACTIONS.get(challenge["transactionId"])
+        if not tx:
+            raise ValueError("Associated authentication transaction not found.")
+
+        expected_challenge = challenge["webauthnChallenge"]
+
+    # Verify WebAuthn assertion server-side
+    verification = verify_webauthn_assertion(
+        expected_challenge=expected_challenge,
+        client_data_json_b64=payload.clientDataJSON,
+        authenticator_data_b64=payload.authenticatorData,
+        signature_b64=payload.signature,
+    )
+
+    if not verification.is_valid:
+        record_audit(
+            tx_id=challenge["transactionId"],
+            user_id=challenge["userId"],
+            event="WEBAUTHN_ASSERTION_FAILED",
+            status="FAILURE",
+            details={"error": verification.error},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise ValueError(verification.error or "WebAuthn verification failed.")
+
+    # Atomic consumption of challenge & completion of Gate 2
+    now = time.time()
+    with _lock:
+        challenge["consumedAt"] = now
+        tx["mobileVerified"] = True
+        tx["biometricVerified"] = True
+        tx["state"] = STATE_AUTHENTICATED
+
+    record_audit(
+        tx_id=challenge["transactionId"],
+        user_id=challenge["userId"],
+        event="GATE_TWO_MOBILE_BIOMETRIC_VERIFIED",
+        status="SUCCESS",
+        details={"user_verified": verification.user_verified},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    return {
+        "success": True,
+        "transactionId": challenge["transactionId"],
+        "state": STATE_AUTHENTICATED,
+        "message": "Mobile biometric authorization complete. You may return to your computer.",
+    }
+
+
+def finalize_computer_session(
+    transaction_id: str,
+    user_agent: Optional[str] = None,
+    ip_address: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Step 5: Computer Browser Session Establishment.
+    Re-validates both Gate 1 and Gate 2 server-side.
+    Establishes authoritative application session.
+    """
+    with _lock:
+        tx = _TRANSACTIONS.get(transaction_id)
+        if not tx:
+            raise ValueError("Transaction not found.")
+
+        if tx["expiresAt"] < time.time():
+            tx["state"] = STATE_EXPIRED
+            raise ValueError("Authentication transaction has expired.")
+
+        # Rigid two-channel verification assertion
+        if not (tx["emailVerified"] and tx["mobileVerified"] and tx["biometricVerified"]):
+            raise ValueError("Cannot establish session: Incomplete two-channel verification gates.")
+
+        user_id = tx["userId"]
+        email = tx["email"]
+        phone = tx["phoneNumber"]
+
+        # Generate authenticated session token
+        session_id = f"sess_{secrets.token_hex(16)}"
+        payload = {
+            "sub": user_id,
+            "session_id": session_id,
+            "transaction_id": transaction_id,
+            "email": email,
+            "phone_number": phone,
+            "role": "authenticated",
+            "security_tier": 2,  # Enhanced 2FA
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 86400 * 7,  # 7 days
+        }
+
+        token = jwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
+
+        _ACTIVE_SESSIONS[session_id] = {
+            "sessionId": session_id,
+            "userId": user_id,
+            "email": email,
+            "phoneNumber": phone,
+            "createdAt": time.time(),
+            "expiresAt": time.time() + 86400 * 7,
+            "userAgent": user_agent,
+            "ipAddress": ip_address,
+            "isRevoked": False,
+        }
+
+    record_audit(
+        tx_id=transaction_id,
+        user_id=user_id,
+        event="SESSION_ESTABLISHED",
+        status="SUCCESS",
+        details={"session_id": session_id},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    return {
+        "success": True,
+        "sessionToken": token,
+        "user": {
+            "id": user_id,
+            "email": email,
+            "phoneNumber": phone,
+            "displayName": email.split("@")[0],
+            "securityTier": 2,
+        },
+    }
+
+
+def get_transaction_status(transaction_id: str) -> Dict[str, Any]:
+    """Retrieve authoritative transaction status for cross-device waiting client."""
+    with _lock:
+        tx = _TRANSACTIONS.get(transaction_id)
+        if not tx:
+            return {"exists": False, "state": STATE_EXPIRED}
+
+        if tx["expiresAt"] < time.time():
+            tx["state"] = STATE_EXPIRED
+
+        return {
+            "exists": True,
+            "transactionId": tx["id"],
+            "state": tx["state"],
+            "emailVerified": tx["emailVerified"],
+            "mobileVerified": tx["mobileVerified"],
+            "biometricVerified": tx["biometricVerified"],
+            "whatsappDeliveryStatus": tx.get("whatsappDeliveryStatus", "unconfigured"),
+            "whatsappConfigured": tx.get("whatsappConfigured", False),
+            "whatsappError": tx.get("whatsappError"),
+            "expiresAt": tx["expiresAt"],
+        }

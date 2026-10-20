@@ -226,3 +226,132 @@ async def delete_account_endpoint(
     }
 
 
+# ==============================================================================
+# Sentinel AI Authoritative Dual-Channel Authentication Endpoints
+# ==============================================================================
+
+from app.auth_engine import (
+    StartAuthRequest,
+    VerifyCallbackRequest,
+    WebAuthnVerificationPayload,
+    SessionCompleteRequest,
+    start_auth_transaction,
+    confirm_email_gate,
+    validate_mobile_challenge_access,
+    complete_mobile_biometric_gate,
+    finalize_computer_session,
+    get_transaction_status,
+)
+
+
+@app.post("/api/auth/start", tags=["Sentinel Auth"])
+async def auth_start_endpoint(
+    payload: StartAuthRequest,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 1: Start 2-channel authentication transaction with email and mobile number.
+    Returns opaque transactionId and initiates Gate 1.
+    """
+    ip_address = request.client.host if request.client else None
+    result = start_auth_transaction(
+        email=payload.email,
+        phone_number=payload.phoneNumber,
+        user_agent=user_agent,
+        ip_address=ip_address,
+    )
+    return result
+
+
+@app.post("/api/auth/confirm-email", tags=["Sentinel Auth"])
+async def auth_confirm_email_endpoint(
+    payload: VerifyCallbackRequest,
+    request: Request,
+):
+    """
+    Step 2: Gate 1 confirmation. Marks email verified and issues WhatsApp mobile challenge.
+    """
+    try:
+        app_origin = request.headers.get("origin") or request.headers.get("referer")
+        result = await confirm_email_gate(
+            transaction_id=payload.transactionId,
+            user_id=payload.userId,
+            override_app_url=app_origin.rstrip("/") if app_origin else None,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.get("/api/auth/status/{transaction_id}", tags=["Sentinel Auth"])
+async def auth_status_endpoint(transaction_id: str):
+    """
+    Authoritative state check for waiting computer screen.
+    """
+    status_info = get_transaction_status(transaction_id)
+    return status_info
+
+
+@app.get("/api/auth/mobile-challenge", tags=["Sentinel Auth"])
+async def auth_mobile_challenge_endpoint(
+    t: str,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 3: Opened on mobile via WhatsApp link.
+    Inspects User-Agent; returns Access Denied if opened on desktop.
+    """
+    result = validate_mobile_challenge_access(mobile_token=t, user_agent=user_agent)
+    if not result.get("valid"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Invalid verification link."),
+        )
+    return result
+
+
+@app.post("/api/auth/webauthn/verify", tags=["Sentinel Auth"])
+async def auth_webauthn_verify_endpoint(
+    payload: WebAuthnVerificationPayload,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 4: Submits WebAuthn assertion from mobile platform authenticator.
+    Validates assertion, consumes challenge atomically, completes Gate 2.
+    """
+    ip_address = request.client.host if request.client else None
+    try:
+        result = complete_mobile_biometric_gate(
+            payload=payload,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.post("/api/auth/complete", tags=["Sentinel Auth"])
+async def auth_complete_endpoint(
+    payload: SessionCompleteRequest,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 5: Finalize authenticated session for computer browser after both gates pass.
+    """
+    ip_address = request.client.host if request.client else None
+    try:
+        session_info = finalize_computer_session(
+            transaction_id=payload.transactionId,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        return session_info
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+
