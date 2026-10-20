@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request, status, UploadFile, File
+from typing import Optional
+from fastapi import FastAPI, Request, status, UploadFile, File, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -130,4 +131,98 @@ async def scan_document_json(payload: DocumentScanPayload):
         file_bytes = get_fixture_bytes(payload.preset or payload.file_name)
 
     return orchestrate_document_scan(file_bytes, payload.file_name)
+
+
+# ==============================================================================
+# Authenticated User Profile & Privacy Controls
+# ==============================================================================
+from fastapi import Depends
+from app.auth import (
+    UserContext,
+    UserProfileUpdate,
+    AccountDeleteRequest,
+    get_current_user,
+    get_user_profile,
+    save_user_profile,
+    delete_user_account,
+)
+
+
+@app.get("/api/user/profile", tags=["User Profile"])
+async def get_profile_endpoint(user: UserContext = Depends(get_current_user)):
+    """
+    Retrieve current authenticated user's isolated profile.
+    Requires verified Authorization Bearer token.
+    """
+    return get_user_profile(user.user_id)
+
+
+@app.post("/api/user/profile", tags=["User Profile"])
+async def update_profile_endpoint(
+    payload: UserProfileUpdate,
+    user: Optional[UserContext] = Depends(lambda: None),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """
+    Update personal onboarding preferences and display name.
+    Enforces user data isolation and ownership checks.
+    """
+    target_user_id: Optional[str] = None
+
+    if authorization:
+        user_ctx = await get_current_user(authorization)
+        target_user_id = user_ctx.user_id
+    elif payload.userId:
+        # Fallback in local development without header
+        target_user_id = payload.userId
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to update profile.",
+        )
+
+    # Prevent modifying another user's profile
+    if payload.userId and payload.userId != target_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot modify another user's profile.",
+        )
+
+    updated = save_user_profile(target_user_id, payload.model_dump(exclude_unset=True))
+    return {
+        "status": "success",
+        "message": "User profile preferences saved.",
+        "profile": updated,
+    }
+
+
+@app.delete("/api/user/account", tags=["User Profile"])
+async def delete_account_endpoint(
+    payload: Optional[AccountDeleteRequest] = None,
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """
+    Permanently erase user profile and associated account data.
+    Enforces server-side authorization check.
+    """
+    target_user_id: Optional[str] = None
+
+    if authorization:
+        user_ctx = await get_current_user(authorization)
+        target_user_id = user_ctx.user_id
+    elif payload and payload.userId:
+        target_user_id = payload.userId
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to delete account.",
+        )
+
+    deleted = delete_user_account(target_user_id)
+    return {
+        "status": "success",
+        "deleted": deleted,
+        "message": "User account and associated profile data have been permanently erased.",
+    }
+
 

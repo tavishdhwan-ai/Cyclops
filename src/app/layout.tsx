@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { ThemeProvider } from '../context/ThemeContext';
+import { AuthProvider } from '../context/AuthContext';
 import { DemoProvider } from '../context/DemoContext';
 import { AppShell } from '../components/layout/AppShell';
 
@@ -44,9 +45,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 min-h-screen">
         <ThemeProvider>
-          <DemoProvider>
-            <AppShell>{children}</AppShell>
-          </DemoProvider>
+          <AuthProvider>
+            <DemoProvider>
+              <AppShell>{children}</AppShell>
+            </DemoProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
