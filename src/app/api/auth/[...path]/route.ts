@@ -13,9 +13,9 @@ async function forwardRequest(request: NextRequest, pathParts: string[]) {
   });
 
   const headers = new Headers();
+  const strippedHeaders = new Set(['host', 'content-length', 'connection', 'keep-alive', 'transfer-encoding']);
   request.headers.forEach((value, key) => {
-    // Avoid forwarding host header
-    if (key.toLowerCase() !== 'host') {
+    if (!strippedHeaders.has(key.toLowerCase())) {
       headers.set(key, value);
     }
   });
@@ -23,6 +23,9 @@ async function forwardRequest(request: NextRequest, pathParts: string[]) {
   let body: BodyInit | undefined = undefined;
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     body = await request.text();
+    if (headers.get('content-type')?.includes('application/json')) {
+      headers.set('Content-Type', 'application/json');
+    }
   }
 
   try {
@@ -68,13 +71,16 @@ async function forwardRequest(request: NextRequest, pathParts: string[]) {
 
     return response;
   } catch (err: unknown) {
+    const correlationId = `corr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    console.error(`[${correlationId}] Backend communication failed for /api/auth/${path}:`, err instanceof Error ? err.message : String(err));
     return NextResponse.json(
       {
         error: 'Backend Connection Failed',
-        message: 'Could not communicate with Sentinel AI backend authentication service.',
-        details: err instanceof Error ? err.message : String(err),
+        message: 'Could not communicate with Sentinel AI backend authentication service. Please verify that the backend is running.',
+        detail: 'Could not communicate with Sentinel AI backend authentication service. Please verify that the backend is running on http://127.0.0.1:8000.',
+        correlationId,
       },
-      { status: 502 }
+      { status: 503 }
     );
   }
 }

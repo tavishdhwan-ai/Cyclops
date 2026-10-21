@@ -1,8 +1,12 @@
+import logging
+import secrets
 from typing import Optional
 from fastapi import FastAPI, Request, status, UploadFile, File, Header, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+
+logger = logging.getLogger("sentinel.main")
 
 from app.schemas import (
     EmailScanRequest,
@@ -33,11 +37,17 @@ app.add_middleware(
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Clean validation error response without exposing stack traces."""
+    msg = "The request body failed schema validation."
+    if exc.errors():
+        first_err = exc.errors()[0]
+        field = ".".join(str(loc) for loc in first_err.get("loc", []))
+        msg = f"Validation failed for {field}: {first_err.get('msg', 'invalid value')}"
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "Validation Error",
-            "message": "The request body failed schema validation.",
+            "message": msg,
+            "detail": msg,
             "details": exc.errors(),
         },
     )
@@ -50,7 +60,8 @@ async def generic_exception_handler(request: Request, exc: Exception):
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "Internal Server Error",
-            "message": "An error occurred while processing the scan request.",
+            "message": "An error occurred while processing the request.",
+            "detail": "An internal error occurred. Please try again.",
         },
     )
 
@@ -63,6 +74,7 @@ async def value_error_handler(request: Request, exc: ValueError):
         content={
             "error": "Bad Request",
             "message": str(exc),
+            "detail": str(exc),
         },
     )
 
@@ -256,6 +268,7 @@ async def auth_start_endpoint(
     Returns opaque transactionId and initiates Gate 1.
     """
     ip_address = request.client.host if request.client else None
+    correlation_id = f"corr_{secrets.token_hex(8)}"
     try:
         result = start_auth_transaction(
             email=payload.email,
@@ -263,9 +276,17 @@ async def auth_start_endpoint(
             user_agent=user_agent,
             ip_address=ip_address,
         )
+        logger.info(f"[{correlation_id}] Initiated auth transaction: {result.get('transactionId')}")
         return result
     except ValueError as e:
+        logger.warning(f"[{correlation_id}] Auth transaction rejected: {str(e)}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"[{correlation_id}] Unexpected error in auth_start_endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate authentication transaction. Please try again shortly.",
+        )
 
 
 @app.post("/api/auth/confirm-email", tags=["Sentinel Auth"])

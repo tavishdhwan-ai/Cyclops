@@ -44,4 +44,8 @@ next-env.d.ts
 __pycache__/
 *.py[cod]
 *$py.class
+*.db
+*.db-wal
+*.db-shm
+
 

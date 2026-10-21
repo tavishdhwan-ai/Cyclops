@@ -14,6 +14,8 @@ from typing import Dict, Any, Optional, List, Tuple
 from pydantic import BaseModel, Field
 import jwt
 
+import re
+import logging
 from app.whatsapp import get_whatsapp_provider, WhatsAppSendResult
 from app.webauthn import (
     generate_webauthn_challenge,
@@ -21,8 +23,41 @@ from app.webauthn import (
     WEBAUTHN_RP_ID,
     WEBAUTHN_ORIGIN,
 )
+from app.database import (
+    save_transaction,
+    load_transaction,
+    save_challenge,
+    load_challenge,
+    record_db_audit,
+)
 import phonenumbers
 from phonenumbers import NumberParseException
+
+logger = logging.getLogger("sentinel.auth")
+
+EMAIL_REGEX = re.compile(
+    r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
+)
+
+def validate_email_address(raw_email: str) -> str:
+    """
+    Validates and normalizes email address format server-side.
+    Rejects malformed emails, injection patterns, and excessive length.
+    """
+    if not raw_email or not isinstance(raw_email, str):
+        raise ValueError("Work or personal email is required.")
+
+    cleaned = raw_email.strip().lower()
+    if len(cleaned) < 5 or len(cleaned) > 254:
+        raise ValueError("Email address length must be between 5 and 254 characters.")
+
+    if "\\" in cleaned or " " in cleaned or "@@" in cleaned:
+        raise ValueError("Email address contains invalid characters.")
+
+    if not EMAIL_REGEX.match(cleaned):
+        raise ValueError("Please provide a valid email address.")
+
+    return cleaned
 
 def validate_and_normalize_phone(raw_phone: str) -> str:
     """
@@ -62,7 +97,7 @@ STATE_FAILED = "FAILED"
 
 _lock = threading.RLock()
 
-# Authoritative In-Memory Repository (with persistence hooks to PostgreSQL/Supabase)
+# Authoritative In-Memory Cache (backed by transactional SQL database)
 _TRANSACTIONS: Dict[str, Dict[str, Any]] = {}
 _CHALLENGES: Dict[str, Dict[str, Any]] = {}  # token_hash -> challenge_data
 _ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}
@@ -107,18 +142,23 @@ def record_audit(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
 ):
+    entry = {
+        "id": f"audit_{secrets.token_hex(8)}",
+        "transaction_id": tx_id,
+        "user_id": user_id,
+        "event_type": event,
+        "status": status,
+        "details": details or {},
+        "ip_address": ip_address,
+        "user_agent": user_agent,
+        "created_at": time.time(),
+    }
     with _lock:
-        _AUDIT_LOGS.append({
-            "id": f"audit_{secrets.token_hex(8)}",
-            "transaction_id": tx_id,
-            "user_id": user_id,
-            "event_type": event,
-            "status": status,
-            "details": details or {},
-            "ip_address": ip_address,
-            "user_agent": user_agent,
-            "created_at": time.time(),
-        })
+        _AUDIT_LOGS.append(entry)
+    try:
+        record_db_audit(entry)
+    except Exception as db_err:
+        logger.error(f"Failed to record audit event: {db_err}")
 
 
 def start_auth_transaction(
@@ -130,7 +170,9 @@ def start_auth_transaction(
     """
     Step 1: Initiates a new two-channel authentication transaction.
     Enforces email and phone association. Sets initial state to EMAIL_PENDING.
+    Persists transaction to authoritative database.
     """
+    normalized_email = validate_email_address(email)
     normalized_phone = validate_and_normalize_phone(phone_number)
     tx_id = f"tx_{secrets.token_hex(16)}"
     now = time.time()
@@ -138,7 +180,7 @@ def start_auth_transaction(
 
     transaction_record = {
         "id": tx_id,
-        "email": email.strip().lower(),
+        "email": normalized_email,
         "phoneNumber": normalized_phone,
         "state": STATE_EMAIL_PENDING,
         "emailVerified": False,
@@ -157,12 +199,17 @@ def start_auth_transaction(
     with _lock:
         _TRANSACTIONS[tx_id] = transaction_record
 
+    try:
+        save_transaction(transaction_record)
+    except Exception as db_err:
+        logger.error(f"Database error saving transaction: {db_err}")
+
     record_audit(
         tx_id=tx_id,
         user_id=None,
         event="AUTH_TRANSACTION_STARTED",
         status="SUCCESS",
-        details={"email": email, "phone": phone_number},
+        details={"email": normalized_email, "phone": normalized_phone},
         ip_address=ip_address,
         user_agent=user_agent,
     )
@@ -187,10 +234,20 @@ async def confirm_email_gate(
     with _lock:
         tx = _TRANSACTIONS.get(transaction_id)
         if not tx:
+            db_tx = load_transaction(transaction_id)
+            if db_tx:
+                _TRANSACTIONS[transaction_id] = db_tx
+                tx = db_tx
+
+        if not tx:
             raise ValueError("Authentication transaction not found or expired.")
 
         if tx["expiresAt"] < time.time():
             tx["state"] = STATE_EXPIRED
+            try:
+                save_transaction(tx)
+            except Exception:
+                pass
             raise ValueError("Authentication transaction has expired. Please restart sign-in.")
 
         if tx["emailVerified"]:
@@ -216,7 +273,7 @@ async def confirm_email_gate(
         tx["state"] = STATE_MOBILE_CHALLENGE_ISSUED
 
         # Store challenge in challenges index with 10 minute expiry
-        _CHALLENGES[token_h] = {
+        challenge_entry = {
             "tokenHash": token_h,
             "transactionId": transaction_id,
             "userId": tx["userId"],
@@ -225,6 +282,13 @@ async def confirm_email_gate(
             "consumedAt": None,
             "attempts": 0,
         }
+        _CHALLENGES[token_h] = challenge_entry
+
+    try:
+        save_transaction(tx)
+        save_challenge(challenge_entry)
+    except Exception as db_err:
+        logger.error(f"Database error saving email confirmation: {db_err}")
 
     # Dispatch WhatsApp message via configured provider
     provider = get_whatsapp_provider()
@@ -378,6 +442,12 @@ def complete_mobile_biometric_gate(
         tx["biometricVerified"] = True
         tx["state"] = STATE_AUTHENTICATED
 
+    try:
+        save_challenge(challenge)
+        save_transaction(tx)
+    except Exception as db_err:
+        logger.error(f"Database error saving biometric verification: {db_err}")
+
     record_audit(
         tx_id=challenge["transactionId"],
         user_id=challenge["userId"],
@@ -409,10 +479,20 @@ def finalize_computer_session(
     with _lock:
         tx = _TRANSACTIONS.get(transaction_id)
         if not tx:
+            db_tx = load_transaction(transaction_id)
+            if db_tx:
+                _TRANSACTIONS[transaction_id] = db_tx
+                tx = db_tx
+
+        if not tx:
             raise ValueError("Transaction not found.")
 
         if tx["expiresAt"] < time.time():
             tx["state"] = STATE_EXPIRED
+            try:
+                save_transaction(tx)
+            except Exception:
+                pass
             raise ValueError("Authentication transaction has expired.")
 
         # Rigid two-channel verification assertion
@@ -451,6 +531,11 @@ def finalize_computer_session(
             "isRevoked": False,
         }
 
+    try:
+        save_transaction(tx)
+    except Exception as db_err:
+        logger.error(f"Database error updating finalized session: {db_err}")
+
     record_audit(
         tx_id=transaction_id,
         user_id=user_id,
@@ -478,6 +563,12 @@ def get_transaction_status(transaction_id: str) -> Dict[str, Any]:
     """Retrieve authoritative transaction status for cross-device waiting client."""
     with _lock:
         tx = _TRANSACTIONS.get(transaction_id)
+        if not tx:
+            db_tx = load_transaction(transaction_id)
+            if db_tx:
+                _TRANSACTIONS[transaction_id] = db_tx
+                tx = db_tx
+
         if not tx:
             return {"exists": False, "state": STATE_EXPIRED}
 

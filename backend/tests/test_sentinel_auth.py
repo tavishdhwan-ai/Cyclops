@@ -350,3 +350,73 @@ def test_logout_revokes_session():
     assert logout_resp.json()["success"] is True
     assert logout_resp.json()["revoked"] is True
 
+
+def test_server_email_validation():
+    """Verify server-side email validation rejects malformed, empty, or malicious inputs."""
+    # 1. Invalid email missing @
+    resp_no_at = client.post(
+        "/api/auth/start",
+        json={"email": "invalidemail.com", "phoneNumber": "+919876543210"},
+    )
+    assert resp_no_at.status_code == 400
+    assert "valid email" in resp_no_at.json()["detail"].lower()
+
+    # 2. Invalid email with spaces
+    resp_spaces = client.post(
+        "/api/auth/start",
+        json={"email": "user @company.com", "phoneNumber": "+919876543210"},
+    )
+    assert resp_spaces.status_code == 400
+
+    # 3. Invalid email with Windows backslash evasion
+    resp_backslash = client.post(
+        "/api/auth/start",
+        json={"email": "user\\name@company.com", "phoneNumber": "+919876543210"},
+    )
+    assert resp_backslash.status_code == 400
+
+    # 4. Valid email with trimming and case normalization
+    resp_valid = client.post(
+        "/api/auth/start",
+        json={"email": "  Agent.Security+Sentinel@Sentinel.AI  ", "phoneNumber": "+919876543210"},
+    )
+    assert resp_valid.status_code == 200
+    assert "transactionId" in resp_valid.json()
+
+
+def test_database_persistence_of_transactions():
+    """Verify transaction and challenge records are genuinely written to the SQL database."""
+    from app.database import load_transaction, load_challenge
+
+    resp = client.post(
+        "/api/auth/start",
+        json={"email": "persistence.test@sentinel.ai", "phoneNumber": "+919876543210"},
+    )
+    assert resp.status_code == 200
+    tx_id = resp.json()["transactionId"]
+
+    # Verify transaction was saved to database
+    db_record = load_transaction(tx_id)
+    assert db_record is not None, "Transaction must exist in SQL database"
+    assert db_record["id"] == tx_id
+    assert db_record["email"] == "persistence.test@sentinel.ai"
+    assert db_record["phoneNumber"] == "+919876543210"
+    assert db_record["state"] == STATE_EMAIL_PENDING
+
+    # Confirm email gate and verify challenge persistence
+    confirm_resp = client.post(
+        "/api/auth/confirm-email",
+        json={"transactionId": tx_id, "email": "persistence.test@sentinel.ai"},
+    )
+    assert confirm_resp.status_code == 200
+
+    from app.auth_engine import _TRANSACTIONS
+    token_h = _TRANSACTIONS[tx_id]["mobileChallengeTokenHash"]
+    assert token_h is not None
+
+    db_challenge = load_challenge(token_h)
+    assert db_challenge is not None, "Challenge must exist in SQL database"
+    assert db_challenge["transactionId"] == tx_id
+    assert db_challenge["consumedAt"] is None
+
+

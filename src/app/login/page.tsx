@@ -76,6 +76,7 @@ function LoginFormContent() {
   // Handle Initial Form Submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // Prevent double-submit duplicate transactions
     setEmailError(null);
     setPhoneError(null);
     setGeneralError(null);

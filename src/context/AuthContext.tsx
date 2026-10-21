@@ -171,7 +171,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          return { success: false, error: errData.detail || 'Failed to start authentication transaction.' };
+          const errorMsg =
+            errData.detail ||
+            errData.message ||
+            errData.error ||
+            `Failed to start authentication transaction (HTTP ${res.status}).`;
+          return {
+            success: false,
+            error: typeof errorMsg === 'string' ? errorMsg : 'Failed to start authentication transaction.',
+          };
         }
 
         const data = await res.json();
@@ -216,7 +224,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          return { success: false, error: errData.detail || 'Failed to confirm email gate.' };
+          const errorMsg =
+            errData.detail ||
+            errData.message ||
+            errData.error ||
+            'Failed to confirm email gate.';
+          return {
+            success: false,
+            error: typeof errorMsg === 'string' ? errorMsg : 'Failed to confirm email gate.',
+          };
         }
 
         return { success: true };
@@ -240,7 +256,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          return { success: false, error: errData.detail || 'Server-side session authorization failed.' };
+          const errorMsg =
+            errData.detail ||
+            errData.message ||
+            errData.error ||
+            'Server-side session authorization failed.';
+          return {
+            success: false,
+            error: typeof errorMsg === 'string' ? errorMsg : 'Server-side session authorization failed.',
+          };
         }
 
         const data = await res.json();

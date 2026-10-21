@@ -132,15 +132,16 @@ export function sanitizeRedirectPath(path: string | null | undefined, fallback: 
 export function formatAuthError(error: unknown): string {
   if (!error || typeof error !== 'object') return 'An unexpected error occurred. Please try again.';
 
-  const errObj = error as { message?: string; status?: number };
+  const errObj = error as { message?: string; status?: number; code?: string; error_code?: string };
   const message = (errObj.message || '').toLowerCase();
+  const code = (errObj.code || errObj.error_code || '').toLowerCase();
   const status = errObj.status;
 
-  if (message.includes('rate limit') || status === 429) {
+  if (message.includes('rate limit') || code.includes('rate_limit') || status === 429) {
     return 'For security, please wait a minute before requesting another magic link.';
   }
 
-  if (message.includes('invalid email') || message.includes('email not valid')) {
+  if (message.includes('invalid email') || message.includes('email not valid') || code.includes('email_address_invalid')) {
     return 'The email address provided is not valid. Please check for typos.';
   }
 
