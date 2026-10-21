@@ -17,18 +17,24 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for Sentinel AI session cookie or Supabase auth token
+  // Check for authoritative Sentinel AI mobile-verified session cookie
   const sentinelSession = request.cookies.get('sentinel_session')?.value;
   const hasSupabaseCookie = request.cookies
     .getAll()
     .some((cookie) => cookie.name.startsWith('sb-') && cookie.name.endsWith('-auth-token'));
 
-  const isAuthenticated = Boolean(sentinelSession || hasSupabaseCookie);
-
-  if (!isAuthenticated) {
+  // Initial Supabase authentication alone does NOT grant access to protected content.
+  // The user MUST possess a valid sentinel_session cookie issued after mobile biometric verification.
+  if (!sentinelSession) {
     const loginUrl = new URL('/login', request.url);
     const sanitizedNext = sanitizeRedirectPath(pathname, '/dashboard');
     loginUrl.searchParams.set('next', sanitizedNext);
+
+    // If initial authentication was completed (Supabase cookie present), direct to awaiting mobile authorization
+    if (hasSupabaseCookie) {
+      loginUrl.searchParams.set('step', 'mobile_waiting');
+    }
+
     return NextResponse.redirect(loginUrl);
   }
 

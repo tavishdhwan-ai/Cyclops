@@ -17,6 +17,7 @@ import jwt
 import re
 import logging
 from app.whatsapp import get_whatsapp_provider, WhatsAppSendResult
+from app.push import dispatch_push_to_user
 from app.webauthn import (
     generate_webauthn_challenge,
     verify_webauthn_assertion,
@@ -301,6 +302,18 @@ async def confirm_email_gate(
         transaction_id=transaction_id,
     )
 
+    # Dispatch Standards-Based Web Push Notification (Zero Cost, Browser Native)
+    push_payload = {
+        "title": "Sentinel AI Biometric Authorization",
+        "body": "Desktop session awaiting fingerprint authorization. Tap to approve.",
+        "icon": "/icons/icon-192x192.png",
+        "data": {
+            "url": verify_url,
+            "transactionId": transaction_id,
+        },
+    }
+    push_result = dispatch_push_to_user(tx["userId"], push_payload)
+
     with _lock:
         tx["whatsappDeliveryStatus"] = send_result.status
         tx["whatsappMessageId"] = send_result.message_id
@@ -308,6 +321,8 @@ async def confirm_email_gate(
         tx["whatsappConfigured"] = send_result.is_configured
         if send_result.error:
             tx["whatsappError"] = send_result.error
+        tx["pushDeliveryStatus"] = push_result.get("status", "no_registered_devices")
+        tx["pushSentCount"] = push_result.get("sent", 0)
 
     record_audit(
         tx_id=transaction_id,
@@ -317,6 +332,8 @@ async def confirm_email_gate(
         details={
             "whatsapp_status": send_result.status,
             "whatsapp_configured": send_result.is_configured,
+            "push_status": tx["pushDeliveryStatus"],
+            "push_sent": tx["pushSentCount"],
         },
     )
 
@@ -327,7 +344,9 @@ async def confirm_email_gate(
         "whatsappDeliveryStatus": send_result.status,
         "whatsappConfigured": send_result.is_configured,
         "whatsappError": send_result.error,
-        "mobileVerificationUrl": verify_url if not send_result.is_configured else None,
+        "pushDeliveryStatus": tx["pushDeliveryStatus"],
+        "pushSentCount": tx["pushSentCount"],
+        "mobileVerificationUrl": verify_url if (not send_result.is_configured and tx["pushSentCount"] == 0) else verify_url,
     }
 
 
@@ -336,7 +355,7 @@ def validate_mobile_challenge_access(
     user_agent: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Step 3: User taps link on WhatsApp.
+    Step 3: User opens link on mobile browser (from Push notification or direct link).
     Validates single-use token, checks preliminary device context.
     """
     token_h = hash_token(mobile_token)
@@ -358,7 +377,7 @@ def validate_mobile_challenge_access(
 
     # Preliminary Device Context Inspection
     ua = (user_agent or "").lower()
-    is_mobile = bool(re_search := any(m in ua for m in ("iphone", "ipod", "android", "mobile")))
+    is_mobile = bool(any(m in ua for m in ("iphone", "ipod", "android", "mobile")))
     is_desktop = not is_mobile and any(d in ua for d in ("windows nt", "macintosh", "mac os x", "linux"))
 
     if is_desktop:
@@ -372,7 +391,7 @@ def validate_mobile_challenge_access(
         return {
             "valid": True,
             "desktopDenied": True,
-            "headline": "Access Denied: Mobile Authorization Required",
+            "headline": "Access Denied: Mobile Verification Required.",
             "message": "This verification step requires a supported mobile device (iOS or Android).",
         }
 
@@ -382,7 +401,13 @@ def validate_mobile_challenge_access(
         "transactionId": challenge["transactionId"],
         "webauthnChallenge": challenge["webauthnChallenge"],
         "rpId": WEBAUTHN_RP_ID,
+        "requestContext": {
+            "browser": tx.get("userAgent", "Desktop Browser"),
+            "requestTime": tx.get("createdAt"),
+            "email": tx.get("email"),
+        },
     }
+
 
 
 def complete_mobile_biometric_gate(
@@ -585,6 +610,10 @@ def get_transaction_status(transaction_id: str) -> Dict[str, Any]:
             "whatsappDeliveryStatus": tx.get("whatsappDeliveryStatus", "unconfigured"),
             "whatsappConfigured": tx.get("whatsappConfigured", False),
             "whatsappError": tx.get("whatsappError"),
+            "pushDeliveryStatus": tx.get("pushDeliveryStatus", "no_registered_devices"),
+            "pushSentCount": tx.get("pushSentCount", 0),
+            "userAgent": tx.get("userAgent"),
+            "createdAt": tx.get("createdAt"),
             "expiresAt": tx["expiresAt"],
         }
 

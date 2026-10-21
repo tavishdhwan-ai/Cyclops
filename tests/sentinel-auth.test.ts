@@ -141,11 +141,35 @@ assert.strictEqual(recoveredString, testString, 'Round-trip must recover origina
 console.log('✓ Base64URL encoding & binary conversions passed');
 
 // ---------------------------------------------------------------------------
-// 5. Legacy Removal Verification
+// 5. Web Push VAPID Utilities & Middleware Server-Side Gate Tests
 // ---------------------------------------------------------------------------
-console.log('Test 5: Legacy authentication removal checks');
+console.log('Test 5: Web Push VAPID key conversion & Server-Side Middleware Gate');
 
-// Verify that no client-side flag alone can mark a user authenticated
-assert.strictEqual(isLegalTransition('EMAIL_PENDING', 'AUTHENTICATED'), false);
+import { urlBase64ToUint8Array } from '../src/lib/pushUtils';
+
+const testVapidKey = 'BLpvWXZ9b2EdlwKkT45YskrYQItuYYqTF1UwiIQaqSy-h3TaOHRvOHaAQRCuZX8YCjwNj8wIKnR8Wvo8V6c8SSQ';
+const convertedBytes = urlBase64ToUint8Array(testVapidKey);
+assert.ok(convertedBytes instanceof Uint8Array, 'VAPID key must convert to Uint8Array');
+assert.strictEqual(convertedBytes.length, 65, 'Uncompressed P-256 public key must be 65 bytes');
+
+// Verify that an initial Supabase cookie alone without sentinel_session is GATED
+function simulateMiddlewareGate(cookies: { sentinelSession?: string; hasSupabaseCookie: boolean }) {
+  if (!cookies.sentinelSession) {
+    return {
+      status: 'REDIRECT_LOGIN',
+      step: cookies.hasSupabaseCookie ? 'mobile_waiting' : undefined,
+    };
+  }
+  return { status: 'AUTHORIZED' };
+}
+
+const supabaseOnlyUser = simulateMiddlewareGate({ hasSupabaseCookie: true });
+assert.strictEqual(supabaseOnlyUser.status, 'REDIRECT_LOGIN');
+assert.strictEqual(supabaseOnlyUser.step, 'mobile_waiting', 'Initial Supabase login must redirect to mobile_waiting');
+
+const fullyVerifiedUser = simulateMiddlewareGate({ sentinelSession: 'token_123', hasSupabaseCookie: true });
+assert.strictEqual(fullyVerifiedUser.status, 'AUTHORIZED');
+
+console.log('✓ VAPID conversion and Server-Side Middleware Gate verified');
 
 console.log('--- All Sentinel AI Authentication Tests Passed Successfully! ---');

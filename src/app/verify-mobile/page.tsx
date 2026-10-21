@@ -123,7 +123,7 @@ function VerifyMobileContent() {
     }
   };
 
-  // 3. Desktop Authorization Denied Experience
+  // 3. Desktop Access Denied Experience
   if (deviceContext?.isDesktop) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 bg-zinc-50 dark:bg-zinc-950">
@@ -134,10 +134,10 @@ function VerifyMobileContent() {
 
           <div className="space-y-2">
             <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-              Access Denied: Mobile Authorization Required
+              Access Denied: Mobile Verification Required.
             </h1>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-              This verification link was delivered via WhatsApp and can only be authorized from a supported mobile device (iOS or Android) equipped with platform biometrics.
+              This verification link can only be authorized from a registered mobile device (iOS or Android) equipped with platform biometrics.
             </p>
           </div>
 
@@ -147,12 +147,12 @@ function VerifyMobileContent() {
               <span>Next Steps:</span>
             </p>
             <ol className="list-decimal list-inside text-zinc-600 dark:text-zinc-400 space-y-1 text-[11px] leading-relaxed">
-              <li>Open WhatsApp on your mobile phone.</li>
-              <li>Locate the security verification message from Sentinel AI.</li>
-              <li>Tap the secure link directly on your mobile device.</li>
+              <li>Open this page on your registered mobile phone browser.</li>
+              <li>Or tap the push notification received on your mobile device.</li>
+              <li>Authorize the pending desktop sign-in using your device biometric sensor.</li>
             </ol>
             <p className="text-[10px] text-zinc-400 dark:text-zinc-500 pt-1 italic">
-              Notice: User-Agent detection is a preliminary UX control. Native biometric hardware guarantees device possession.
+              Notice: Device-class detection is enforced alongside server-side cryptographic challenge verification.
             </p>
           </div>
 
@@ -196,7 +196,7 @@ function VerifyMobileContent() {
 
           <div className="space-y-1.5">
             <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-              Device Verified Successfully
+              Session Authorized Successfully
             </h2>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
               Biometric authorization has been validated by Sentinel AI.
@@ -204,9 +204,9 @@ function VerifyMobileContent() {
           </div>
 
           <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 p-3.5 text-xs text-emerald-900 dark:text-emerald-300">
-            <p className="font-semibold">Return to Your Computer</p>
+            <p className="font-semibold">Return to Your Desktop</p>
             <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/80 mt-1">
-              Your computer session has automatically progressed to the secure dashboard. You may safely close this tab.
+              Your desktop browser has received the authorization confirmation and unlocked your secure dashboard. You may safely close this tab.
             </p>
           </div>
         </div>
@@ -218,20 +218,43 @@ function VerifyMobileContent() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 bg-zinc-50 dark:bg-zinc-950">
       <div className="w-full max-w-sm rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-8 shadow-sm text-center space-y-6">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 shadow-sm">
-          <Fingerprint className="h-7 w-7" />
+        {/* Biometric Scanner Visual Illustration */}
+        <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 shadow-md">
+          <div className="absolute inset-0 rounded-3xl bg-blue-500/20 animate-ping opacity-30" />
+          <Fingerprint className="h-10 w-10 relative z-10" />
         </div>
 
-        <div className="space-y-1.5">
-          <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-            Sentinel AI Mobile Verification
+        {/* Required Prominent Instruction */}
+        <div className="space-y-2">
+          <h1 className="text-base font-bold text-zinc-900 dark:text-zinc-100 leading-snug">
+            Place your Index Finger on the scanner to authorize this session.
           </h1>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            Authorize your login session using your device platform biometrics (Face ID, Touch ID, or Screen Lock).
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            Your device will prompt for biometric verification (Fingerprint, Face ID, or Screen Lock) to authorize the pending desktop login.
           </p>
         </div>
 
-        {/* WhatsApp In-App Browser Warning */}
+        {/* Requesting Session Context */}
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3.5 text-left text-xs space-y-2">
+          <div className="flex items-center justify-between text-zinc-700 dark:text-zinc-300 font-semibold text-[11px]">
+            <span>Request Details</span>
+            <span className="font-mono text-[10px] text-zinc-400">
+              Tx: {(challengeData?.transactionId || token).slice(0, 8)}...
+            </span>
+          </div>
+          <div className="space-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+            <p>
+              <span className="text-zinc-700 dark:text-zinc-300 font-medium">Session: </span>
+              Pending Desktop Sign-in
+            </p>
+            <p>
+              <span className="text-zinc-700 dark:text-zinc-300 font-medium">Relying Party: </span>
+              {challengeData?.rpId || 'localhost'}
+            </p>
+          </div>
+        </div>
+
+        {/* In-App Browser Warning if applicable */}
         {webAuthnSupport?.isWhatsAppInAppBrowser && (
           <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 text-left text-xs text-amber-900 dark:text-amber-200 space-y-1">
             <p className="font-semibold flex items-center gap-1.5">
@@ -239,7 +262,7 @@ function VerifyMobileContent() {
               <span>In-App Browser Detected</span>
             </p>
             <p className="text-[11px] text-amber-800/90 dark:text-amber-300/80">
-              WhatsApp&apos;s internal browser may restrict biometric hardware. If authentication does not trigger, tap the menu (•••) and select &quot;Open in Safari&quot; or &quot;Open in Chrome&quot;.
+              In-app browsers may restrict biometric hardware. If authentication does not trigger, tap (•••) and select &quot;Open in Safari/Chrome&quot;.
             </p>
           </div>
         )}
@@ -258,8 +281,8 @@ function VerifyMobileContent() {
           </div>
         )}
 
-        {/* Action Button */}
-        <div className="space-y-3 pt-2">
+        {/* Explicit Approve and Cancel Controls */}
+        <div className="space-y-2 pt-1">
           <button
             type="button"
             onClick={handleAuthenticate}
@@ -269,23 +292,33 @@ function VerifyMobileContent() {
             {isVerifying ? (
               <>
                 <div className="h-3.5 w-3.5 border-2 border-white dark:border-zinc-900 border-t-transparent rounded-full animate-spin" />
-                <span>Prompting Biometrics...</span>
+                <span>Verifying Biometric Sensor...</span>
               </>
             ) : (
               <>
                 <Fingerprint className="h-4 w-4" />
-                <span>Authorize with Biometrics</span>
+                <span>Approve & Authorize Session</span>
               </>
             )}
           </button>
 
-          <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
-            Protected by Sentinel AI Two-Channel Zero-Trust Protocol.
+          <button
+            type="button"
+            onClick={() => router.push('/login')}
+            disabled={isVerifying}
+            className="w-full py-2.5 px-4 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+          >
+            Cancel Authorization
+          </button>
+
+          <p className="text-[10px] text-zinc-400 dark:text-zinc-500 pt-1">
+            WebAuthn cryptographic verification ensures biometric templates never leave this device.
           </p>
         </div>
       </div>
     </div>
   );
+
 }
 
 export default function VerifyMobilePage() {

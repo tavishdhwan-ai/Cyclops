@@ -394,5 +394,103 @@ async def auth_logout_endpoint(
     return {"success": True, "revoked": revoked, "message": "Session invalidated."}
 
 
+# ------------------------------------------------------------------------------
+# Web Push & Mobile Device Registration Endpoints
+# ------------------------------------------------------------------------------
+
+from pydantic import BaseModel
+from app.push import get_vapid_public_key
+from app.database import (
+    save_push_subscription,
+    register_device,
+    get_devices_for_user,
+)
+
+
+class PushKeysModel(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionModel(BaseModel):
+    endpoint: str
+    keys: PushKeysModel
+
+
+class PushSubscribeRequest(BaseModel):
+    userId: str
+    subscription: PushSubscriptionModel
+    deviceId: Optional[str] = None
+    userAgent: Optional[str] = None
+
+
+class DeviceRegisterRequest(BaseModel):
+    deviceId: str
+    userId: str
+    deviceName: Optional[str] = "Mobile Device"
+    deviceType: Optional[str] = "mobile"
+    platform: Optional[str] = "Unknown"
+    credentialId: Optional[str] = None
+    publicKey: Optional[str] = None
+
+
+@app.get("/api/auth/push/vapid-public-key", tags=["Web Push"])
+async def push_vapid_key_endpoint():
+    """Returns VAPID public key for browser Push API subscription."""
+    return {"publicKey": get_vapid_public_key()}
+
+
+@app.post("/api/auth/push/subscribe", tags=["Web Push"])
+async def push_subscribe_endpoint(payload: PushSubscribeRequest):
+    """Registers or updates a user's browser push subscription."""
+    try:
+        sub_record = {
+            "user_id": payload.userId,
+            "endpoint": payload.subscription.endpoint,
+            "p256dh": payload.subscription.keys.p256dh,
+            "auth": payload.subscription.keys.auth,
+            "device_id": payload.deviceId,
+            "user_agent": payload.userAgent,
+        }
+        save_push_subscription(sub_record)
+        return {"success": True, "message": "Push subscription registered."}
+    except Exception as e:
+        logger.error(f"Error subscribing to push: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to register push subscription: {str(e)}",
+        )
+
+
+@app.post("/api/auth/devices/register", tags=["Device Registration"])
+async def device_register_endpoint(payload: DeviceRegisterRequest):
+    """Enrolls a trusted mobile device and platform authenticator credential."""
+    try:
+        device_record = {
+            "device_id": payload.deviceId,
+            "user_id": payload.userId,
+            "device_name": payload.deviceName or "Mobile Device",
+            "device_type": payload.deviceType or "mobile",
+            "platform": payload.platform or "Unknown",
+            "credential_id": payload.credentialId,
+            "public_key": payload.publicKey,
+        }
+        register_device(device_record)
+        return {"success": True, "message": "Device registered successfully."}
+    except Exception as e:
+        logger.error(f"Error registering device: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to register device: {str(e)}",
+        )
+
+
+@app.get("/api/auth/devices/{user_id}", tags=["Device Registration"])
+async def list_user_devices_endpoint(user_id: str):
+    """Lists enrolled mobile devices for an authenticated user."""
+    devices = get_devices_for_user(user_id)
+    return {"userId": user_id, "devices": devices}
+
+
 
 

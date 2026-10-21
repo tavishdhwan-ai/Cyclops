@@ -6,6 +6,7 @@ Provides transactional operations for auth_sessions, auth_challenges, user_profi
 import os
 import json
 import time
+import secrets
 import sqlite3
 import threading
 import logging
@@ -105,9 +106,40 @@ def init_db():
                 created_at REAL NOT NULL
             );
 
-            CREATE INDEX IF NOT EXISTS idx_auth_audit_tx ON auth_audit_events(transaction_id);
-            CREATE INDEX IF NOT EXISTS idx_auth_audit_time ON auth_audit_events(created_at);
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                endpoint TEXT UNIQUE NOT NULL,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                device_id TEXT,
+                user_agent TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_push_sub_user_id ON push_subscriptions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_push_sub_endpoint ON push_subscriptions(endpoint);
+
+            CREATE TABLE IF NOT EXISTS registered_devices (
+                id TEXT PRIMARY KEY,
+                device_id TEXT UNIQUE NOT NULL,
+                user_id TEXT NOT NULL,
+                device_name TEXT,
+                device_type TEXT DEFAULT 'mobile',
+                platform TEXT,
+                credential_id TEXT UNIQUE,
+                public_key TEXT,
+                sign_count INTEGER DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                last_used_at REAL,
+                created_at REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_reg_dev_user_id ON registered_devices(user_id);
+            CREATE INDEX IF NOT EXISTS idx_reg_dev_cred_id ON registered_devices(credential_id);
             """)
+
 
 
 # Initialize database tables immediately on import
@@ -276,3 +308,126 @@ def record_db_audit(audit_entry: Dict[str, Any]) -> None:
                     audit_entry.get("created_at", time.time()),
                 ),
             )
+
+
+def save_push_subscription(sub_data: Dict[str, Any]) -> None:
+    """Inserts or updates a browser push subscription for a user."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO push_subscriptions (
+                    id, user_id, endpoint, p256dh, auth, device_id, user_agent, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(endpoint) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    p256dh = excluded.p256dh,
+                    auth = excluded.auth,
+                    device_id = excluded.device_id,
+                    user_agent = excluded.user_agent,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    sub_data.get("id", f"sub_{secrets.token_hex(8)}"),
+                    sub_data["user_id"],
+                    sub_data["endpoint"],
+                    sub_data["p256dh"],
+                    sub_data["auth"],
+                    sub_data.get("device_id"),
+                    sub_data.get("user_agent"),
+                    sub_data.get("created_at", time.time()),
+                    time.time(),
+                ),
+            )
+
+
+def get_push_subscriptions_for_user(user_id: str) -> List[Dict[str, Any]]:
+    """Retrieves all active push subscriptions for a user."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute("SELECT * FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "userId": r["user_id"],
+                    "endpoint": r["endpoint"],
+                    "p256dh": r["p256dh"],
+                    "auth": r["auth"],
+                    "deviceId": r["device_id"],
+                    "userAgent": r["user_agent"],
+                    "createdAt": r["created_at"],
+                    "updatedAt": r["updated_at"],
+                }
+                for r in rows
+            ]
+
+
+def delete_push_subscription(endpoint: str) -> None:
+    """Deletes an invalid or expired push subscription."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+
+
+def register_device(device_data: Dict[str, Any]) -> None:
+    """Registers or updates a trusted mobile device."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO registered_devices (
+                    id, device_id, user_id, device_name, device_type, platform,
+                    credential_id, public_key, sign_count, is_active, last_used_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(device_id) DO UPDATE SET
+                    device_name = excluded.device_name,
+                    platform = excluded.platform,
+                    credential_id = excluded.credential_id,
+                    public_key = excluded.public_key,
+                    sign_count = excluded.sign_count,
+                    is_active = excluded.is_active,
+                    last_used_at = excluded.last_used_at
+                """,
+                (
+                    device_data.get("id", f"dev_{secrets.token_hex(8)}"),
+                    device_data["device_id"],
+                    device_data["user_id"],
+                    device_data.get("device_name", "Mobile Device"),
+                    device_data.get("device_type", "mobile"),
+                    device_data.get("platform", "Unknown"),
+                    device_data.get("credential_id"),
+                    device_data.get("public_key"),
+                    device_data.get("sign_count", 0),
+                    1 if device_data.get("is_active", True) else 0,
+                    device_data.get("last_used_at", time.time()),
+                    device_data.get("created_at", time.time()),
+                ),
+            )
+
+
+def get_devices_for_user(user_id: str) -> List[Dict[str, Any]]:
+    """Retrieves all registered devices for a user."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM registered_devices WHERE user_id = ? AND is_active = 1", (user_id,)
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "deviceId": r["device_id"],
+                    "userId": r["user_id"],
+                    "deviceName": r["device_name"],
+                    "deviceType": r["device_type"],
+                    "platform": r["platform"],
+                    "credentialId": r["credential_id"],
+                    "signCount": r["sign_count"],
+                    "isActive": bool(r["is_active"]),
+                    "lastUsedAt": r["last_used_at"],
+                    "createdAt": r["created_at"],
+                }
+                for r in rows
+            ]
+

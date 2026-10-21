@@ -107,7 +107,7 @@ def test_desktop_user_agent_denied_with_exact_headline():
     assert resp_desktop.status_code == 200
     data = resp_desktop.json()
     assert data["desktopDenied"] is True
-    assert data["headline"] == "Access Denied: Mobile Authorization Required"
+    assert data["headline"] == "Access Denied: Mobile Verification Required."
     assert "mobile device" in data["message"].lower()
 
 
@@ -418,5 +418,64 @@ def test_database_persistence_of_transactions():
     assert db_challenge is not None, "Challenge must exist in SQL database"
     assert db_challenge["transactionId"] == tx_id
     assert db_challenge["consumedAt"] is None
+
+
+def test_web_push_vapid_key_endpoint():
+    """Verify VAPID public key retrieval for browser Push API registration."""
+    resp = client.get("/api/auth/push/vapid-public-key")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "publicKey" in data
+    assert len(data["publicKey"]) > 30
+
+
+def test_push_subscription_and_device_registration():
+    """Verify push subscription and device registration persistence in database."""
+    from app.database import get_push_subscriptions_for_user, get_devices_for_user
+
+    user_id = "usr_push_test_" + secrets.token_hex(4)
+    device_id = "dev_push_test_" + secrets.token_hex(4)
+
+    # Register Push Subscription
+    sub_payload = {
+        "userId": user_id,
+        "subscription": {
+            "endpoint": f"https://push.services.mozilla.com/wpush/v2/{secrets.token_urlsafe(16)}",
+            "keys": {
+                "p256dh": "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QT9AcDnVwT3U_0w",
+                "auth": "tBHItJI5svbpez7KI4CCXg",
+            },
+        },
+        "deviceId": device_id,
+        "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+    }
+    sub_resp = client.post("/api/auth/push/subscribe", json=sub_payload)
+    assert sub_resp.status_code == 200
+    assert sub_resp.json()["success"] is True
+
+    # Check persistence
+    subs = get_push_subscriptions_for_user(user_id)
+    assert len(subs) == 1
+    assert subs[0]["endpoint"] == sub_payload["subscription"]["endpoint"]
+
+    # Register Mobile Device
+    dev_payload = {
+        "deviceId": device_id,
+        "userId": user_id,
+        "deviceName": "iPhone 15 Pro",
+        "deviceType": "mobile",
+        "platform": "iOS",
+        "credentialId": "cred_" + secrets.token_hex(8),
+    }
+    dev_resp = client.post("/api/auth/devices/register", json=dev_payload)
+    assert dev_resp.status_code == 200
+    assert dev_resp.json()["success"] is True
+
+    # List devices
+    devices_resp = client.get(f"/api/auth/devices/{user_id}")
+    assert devices_resp.status_code == 200
+    dev_list = devices_resp.json()["devices"]
+    assert len(dev_list) == 1
+    assert dev_list[0]["deviceName"] == "iPhone 15 Pro"
 
 

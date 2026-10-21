@@ -173,3 +173,74 @@ BEGIN
         USING (true)
         WITH CHECK (true);
 END $$;
+
+-- 7. push_subscriptions table
+-- Stores standards-based Web Push subscriptions (VAPID endpoints and keys)
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    endpoint TEXT UNIQUE NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    device_id VARCHAR(128),
+    user_agent TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_sub_user_id ON public.push_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_push_sub_endpoint ON public.push_subscriptions(endpoint);
+
+-- 8. registered_devices table
+-- Tracks trusted mobile devices and their WebAuthn authenticators
+CREATE TABLE IF NOT EXISTS public.registered_devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id VARCHAR(128) UNIQUE NOT NULL,
+    user_id UUID NOT NULL,
+    device_name VARCHAR(100) DEFAULT 'Mobile Device',
+    device_type VARCHAR(32) DEFAULT 'mobile',
+    platform VARCHAR(64) DEFAULT 'Unknown',
+    credential_id VARCHAR(255) UNIQUE,
+    public_key TEXT,
+    sign_count BIGINT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_used_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reg_dev_user_id ON public.registered_devices(user_id);
+CREATE INDEX IF NOT EXISTS idx_reg_dev_cred_id ON public.registered_devices(credential_id);
+
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.registered_devices ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+    DROP POLICY IF EXISTS "Users can manage own push subscriptions" ON public.push_subscriptions;
+    DROP POLICY IF EXISTS "Service role full access on push subscriptions" ON public.push_subscriptions;
+
+    CREATE POLICY "Users can manage own push subscriptions"
+        ON public.push_subscriptions FOR ALL
+        USING (auth.uid() = user_id)
+        WITH CHECK (auth.uid() = user_id);
+
+    CREATE POLICY "Service role full access on push subscriptions"
+        ON public.push_subscriptions FOR ALL
+        TO service_role
+        USING (true)
+        WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Users can read own registered devices" ON public.registered_devices;
+    DROP POLICY IF EXISTS "Service role full access on registered devices" ON public.registered_devices;
+
+    CREATE POLICY "Users can read own registered devices"
+        ON public.registered_devices FOR SELECT
+        USING (auth.uid() = user_id);
+
+    CREATE POLICY "Service role full access on registered devices"
+        ON public.registered_devices FOR ALL
+        TO service_role
+        USING (true)
+        WITH CHECK (true);
+END $$;
+

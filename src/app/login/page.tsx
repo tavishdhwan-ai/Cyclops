@@ -17,7 +17,9 @@ import {
   Info,
   Clock,
   Smartphone,
+  Fingerprint,
 } from 'lucide-react';
+
 import { InternationalPhoneInput } from '../../components/ui/InternationalPhoneInput';
 
 
@@ -62,6 +64,14 @@ function LoginFormContent() {
     error?: string;
     mobileVerificationUrl?: string;
   } | null>(null);
+
+  const [pushInfo, setPushInfo] = useState<{
+    status: string;
+    sentCount: number;
+  }>({ status: 'pending', sentCount: 0 });
+
+  const [txExpiresAt, setTxExpiresAt] = useState<number | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
@@ -126,9 +136,27 @@ function LoginFormContent() {
         status: data.whatsappDeliveryStatus || 'unconfigured',
         isConfigured: Boolean(data.whatsappConfigured),
         error: data.whatsappError,
+        mobileVerificationUrl: data.mobileVerificationUrl,
       });
 
-      // When mobile biometric verification passes, finalize session
+      if (data.pushDeliveryStatus) {
+        setPushInfo({
+          status: data.pushDeliveryStatus,
+          sentCount: data.pushSentCount || 0,
+        });
+      }
+
+      if (data.expiresAt) {
+        setTxExpiresAt(data.expiresAt);
+      }
+
+      if (data.state === 'EXPIRED') {
+        setGeneralError('This authorization transaction has expired. Please restart sign-in.');
+        setFlowStep('input');
+        return;
+      }
+
+      // When mobile biometric verification passes, finalize session authoritatively
       if (data.biometricVerified || data.state === 'AUTHENTICATED') {
         setFlowStep('completing');
         const sessionRes = await completeSession(activeTx);
@@ -142,6 +170,27 @@ function LoginFormContent() {
       console.warn('Status poll exception:', e);
     }
   }, [activeTx, completeSession, nextDestination, router]);
+
+  // Transaction countdown timer
+  useEffect(() => {
+    if (!txExpiresAt || (flowStep !== 'mobile_waiting' && flowStep !== 'email_sent')) {
+      setSecondsRemaining(null);
+      return;
+    }
+
+    const updateTimer = () => {
+      const diff = Math.max(0, Math.floor(txExpiresAt - Date.now() / 1000));
+      setSecondsRemaining(diff);
+      if (diff <= 0 && flowStep === 'mobile_waiting') {
+        setGeneralError('Your authorization transaction has expired. Please sign in again.');
+        setFlowStep('input');
+      }
+    };
+
+    updateTimer();
+    const timerInterval = setInterval(updateTimer, 1000);
+    return () => clearInterval(timerInterval);
+  }, [txExpiresAt, flowStep]);
 
   // Bounded polling loop when on mobile_waiting screen
   useEffect(() => {
@@ -363,81 +412,109 @@ function LoginFormContent() {
 
           {flowStep === 'mobile_waiting' && (
             <div className="space-y-5 text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
-                <Smartphone className="h-6 w-6 animate-pulse" />
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 shadow-sm">
+                <Fingerprint className="h-7 w-7 animate-pulse" />
               </div>
 
               <div className="space-y-1.5">
-                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 text-[10px] font-semibold mb-1">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 text-[10px] font-semibold mb-1">
                   <CheckCircle2 className="h-3 w-3" />
                   <span>Gate 1 Email Verified</span>
                 </div>
-                <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                  Step 2: WhatsApp Mobile Verification
-                </h2>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                  A secure biometric verification challenge has been issued to:
-                </p>
-                <p className="text-xs font-mono font-semibold text-zinc-900 dark:text-zinc-100 bg-zinc-100 dark:bg-zinc-800 py-1 px-2.5 rounded-md inline-block">
-                  {maskPhoneNumber(phone) || 'Your mobile phone'}
+                <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  Awaiting Mobile Fingerprint Authorization...
+                </h1>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed max-w-sm mx-auto">
+                  Authorization must be completed on your registered mobile device using your device&apos;s supported biometric authenticator.
                 </p>
               </div>
 
-              {/* WhatsApp Provider Status */}
-              {whatsappInfo?.isConfigured ? (
-                <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 text-left text-xs text-emerald-900 dark:text-emerald-300 space-y-1">
-                  <p className="font-semibold flex items-center gap-1.5">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>WhatsApp Message Dispatched</span>
-                  </p>
-                  <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/80">
-                    Open WhatsApp on your mobile phone, tap the link, and complete biometric unlock (Face ID / Touch ID).
-                  </p>
+              {/* Notification & Dispatch Status */}
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/70 p-4 text-left text-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
+                    <Smartphone className="h-4 w-4 text-zinc-600 dark:text-zinc-400" />
+                    <span>Notification Delivery:</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-400">
+                    Tx: {activeTx.slice(0, 8)}...
+                  </span>
                 </div>
-              ) : (
-                <div className="p-3.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-left text-xs text-amber-900 dark:text-amber-200 space-y-2">
-                  <div className="flex items-start gap-1.5">
-                    <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+
+                {pushInfo.status === 'delivered' ? (
+                  <div className="flex items-start gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-2.5 border border-emerald-200 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
                     <div>
-                      <p className="font-semibold">WhatsApp Provider Unconfigured</p>
-                      <p className="text-[11px] text-amber-800/90 dark:text-amber-300/80 mt-0.5">
-                        Live message delivery requires Twilio (<code className="font-mono">TWILIO_ACCOUNT_SID</code>) or Meta (<code className="font-mono">WHATSAPP_API_TOKEN</code>).
+                      <p className="font-semibold text-xs">Web Push Notification Sent</p>
+                      <p className="text-[11px] text-emerald-700/90 dark:text-emerald-300/80 mt-0.5">
+                        Dispatched to your registered mobile browser. Open the notification to authorize.
                       </p>
                     </div>
                   </div>
-                  {whatsappInfo?.mobileVerificationUrl && (
-                    <div className="pt-1">
-                      <a
-                        href={whatsappInfo.mobileVerificationUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 bg-amber-600 text-white dark:bg-amber-500 dark:text-zinc-950 font-semibold px-3 py-1.5 rounded-md text-xs hover:opacity-90"
-                      >
-                        <span>Open Mobile WebAuthn Link</span>
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
+                ) : (
+                  <div className="flex items-start gap-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 p-2.5 border border-blue-200 dark:border-blue-900/40 text-blue-900 dark:text-blue-200">
+                    <Info className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-xs">
+                        {pushInfo.status === 'no_registered_devices'
+                          ? 'No Registered Mobile Browser Found'
+                          : 'Web Push Pending Delivery'}
+                      </p>
+                      <p className="text-[11px] text-blue-800/90 dark:text-blue-300/80 mt-0.5">
+                        Tap the link below on your mobile device to authorize and enroll it for instant push.
+                      </p>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
 
-              {/* Waiting Indicator & Realtime Pulse */}
-              <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
-                <span>Waiting for mobile biometric authorization signal...</span>
+                {whatsappInfo?.mobileVerificationUrl && (
+                  <div className="pt-1">
+                    <a
+                      href={whatsappInfo.mobileVerificationUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 w-full justify-center bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 font-semibold px-3 py-2 rounded-lg text-xs hover:opacity-90 transition-opacity shadow-xs"
+                    >
+                      <span>Open Mobile WebAuthn Verification</span>
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                )}
               </div>
 
+              {/* Pending Indicator & Expiration Countdown */}
+              <div className="flex items-center justify-between px-1 text-xs text-zinc-500 dark:text-zinc-400">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
+                  <span>Waiting for mobile authorization signal...</span>
+                </div>
+                {secondsRemaining !== null && (
+                  <div className="flex items-center gap-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <Clock className="h-3.5 w-3.5 text-zinc-400" />
+                    <span>
+                      Expires in {Math.floor(secondsRemaining / 60)}:
+                      {String(secondsRemaining % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Accessible Cancel Option */}
               <div className="pt-2">
                 <button
                   type="button"
-                  onClick={() => setFlowStep('input')}
-                  className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer"
+                  onClick={() => {
+                    setFlowStep('input');
+                    setActiveTx('');
+                  }}
+                  className="w-full py-2 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                 >
-                  Cancel and restart
+                  Cancel pending attempt
                 </button>
               </div>
             </div>
           )}
+
 
           {flowStep === 'completing' && (
             <div className="space-y-4 text-center py-6">
