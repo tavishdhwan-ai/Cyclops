@@ -256,7 +256,11 @@ async def confirm_email_gate(
             return {
                 "transactionId": transaction_id,
                 "state": tx["state"],
+                "emailVerified": True,
                 "whatsappDeliveryStatus": tx.get("whatsappDeliveryStatus", "sent"),
+                "pushDeliveryStatus": tx.get("pushDeliveryStatus", "no_registered_devices"),
+                "pushSentCount": tx.get("pushSentCount", 0),
+                "mobileVerificationUrl": tx.get("mobileVerificationUrl"),
             }
 
         # Authoritative Gate 1 Verification
@@ -269,8 +273,13 @@ async def confirm_email_gate(
         token_h = hash_token(mobile_raw_token)
         webauthn_challenge = generate_webauthn_challenge()
 
+        base_url = override_app_url or APP_PUBLIC_URL
+        verify_url = f"{base_url}/verify-mobile?t={mobile_raw_token}"
+
         tx["mobileChallengeTokenHash"] = token_h
         tx["webauthnChallenge"] = webauthn_challenge
+        tx["rawMobileToken"] = mobile_raw_token
+        tx["mobileVerificationUrl"] = verify_url
         tx["state"] = STATE_MOBILE_CHALLENGE_ISSUED
 
         # Store challenge in challenges index with 10 minute expiry
@@ -401,6 +410,7 @@ def validate_mobile_challenge_access(
         "transactionId": challenge["transactionId"],
         "webauthnChallenge": challenge["webauthnChallenge"],
         "rpId": WEBAUTHN_RP_ID,
+        "userId": challenge["userId"],
         "requestContext": {
             "browser": tx.get("userAgent", "Desktop Browser"),
             "requestTime": tx.get("createdAt"),
@@ -612,6 +622,7 @@ def get_transaction_status(transaction_id: str) -> Dict[str, Any]:
             "whatsappError": tx.get("whatsappError"),
             "pushDeliveryStatus": tx.get("pushDeliveryStatus", "no_registered_devices"),
             "pushSentCount": tx.get("pushSentCount", 0),
+            "mobileVerificationUrl": tx.get("mobileVerificationUrl"),
             "userAgent": tx.get("userAgent"),
             "createdAt": tx.get("createdAt"),
             "expiresAt": tx["expiresAt"],

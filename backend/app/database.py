@@ -140,6 +140,11 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_reg_dev_cred_id ON registered_devices(credential_id);
             """)
 
+            # Safe additive migration for mobile_verification_url column
+            try:
+                conn.execute("ALTER TABLE auth_sessions ADD COLUMN mobile_verification_url TEXT;")
+            except Exception:
+                pass
 
 
 # Initialize database tables immediately on import
@@ -156,12 +161,14 @@ def save_transaction(tx_data: Dict[str, Any]) -> None:
                     id, transaction_id, user_id, email, phone_number,
                     email_verified, mobile_verified, biometric_verified,
                     biometric_status, state, user_agent, ip_address,
-                    expires_at, last_active_at, revoked_at, is_revoked, created_at
+                    expires_at, last_active_at, revoked_at, is_revoked, created_at,
+                    mobile_verification_url
                 ) VALUES (
                     ?, ?, ?, ?, ?,
                     ?, ?, ?,
                     ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?,
+                    ?
                 )
                 ON CONFLICT(transaction_id) DO UPDATE SET
                     user_id = excluded.user_id,
@@ -174,7 +181,8 @@ def save_transaction(tx_data: Dict[str, Any]) -> None:
                     state = excluded.state,
                     last_active_at = excluded.last_active_at,
                     revoked_at = excluded.revoked_at,
-                    is_revoked = excluded.is_revoked
+                    is_revoked = excluded.is_revoked,
+                    mobile_verification_url = excluded.mobile_verification_url
                 """,
                 (
                     tx_data.get("id"),
@@ -194,6 +202,7 @@ def save_transaction(tx_data: Dict[str, Any]) -> None:
                     tx_data.get("revokedAt"),
                     1 if tx_data.get("isRevoked") else 0,
                     tx_data.get("createdAt", time.time()),
+                    tx_data.get("mobileVerificationUrl"),
                 ),
             )
 
@@ -206,6 +215,7 @@ def load_transaction(tx_id: str) -> Optional[Dict[str, Any]]:
             row = cur.fetchone()
             if not row:
                 return None
+            row_keys = row.keys()
             return {
                 "id": row["transaction_id"],
                 "userId": row["user_id"],
@@ -223,7 +233,9 @@ def load_transaction(tx_id: str) -> Optional[Dict[str, Any]]:
                 "revokedAt": row["revoked_at"],
                 "isRevoked": bool(row["is_revoked"]),
                 "createdAt": row["created_at"],
+                "mobileVerificationUrl": row["mobile_verification_url"] if "mobile_verification_url" in row_keys else None,
             }
+
 
 
 def save_challenge(challenge_data: Dict[str, Any]) -> None:

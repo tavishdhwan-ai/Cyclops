@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import { validateEmail, sanitizeRedirectPath } from '../../lib/authUtils';
 import { normalizePhoneNumber, maskPhoneNumber } from '../../lib/phoneUtils';
+import QRCode from 'qrcode';
 import {
   Shield,
   Mail,
@@ -18,6 +19,9 @@ import {
   Clock,
   Smartphone,
   Fingerprint,
+  QrCode,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 import { InternationalPhoneInput } from '../../components/ui/InternationalPhoneInput';
@@ -76,6 +80,64 @@ function LoginFormContent() {
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
 
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // Generate QR Code data URL when mobileVerificationUrl is available
+  useEffect(() => {
+    let active = true;
+    if (whatsappInfo?.mobileVerificationUrl) {
+      let fullUrl = whatsappInfo.mobileVerificationUrl;
+      if (typeof window !== 'undefined' && fullUrl.startsWith('/')) {
+        fullUrl = `${window.location.origin}${fullUrl}`;
+      }
+      QRCode.toDataURL(fullUrl, {
+        width: 192,
+        margin: 1,
+        color: {
+          dark: '#09090b',
+          light: '#ffffff',
+        },
+      })
+        .then((url) => {
+          if (active) setQrCodeDataUrl(url);
+        })
+        .catch((err) => {
+          console.error('Failed to generate QR code', err);
+        });
+    } else {
+      setQrCodeDataUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [whatsappInfo?.mobileVerificationUrl]);
+
+  // Handle copying short-lived mobile enrollment link
+  const handleCopyMobileLink = async () => {
+    if (!whatsappInfo?.mobileVerificationUrl) return;
+    let fullUrl = whatsappInfo.mobileVerificationUrl;
+    if (typeof window !== 'undefined' && fullUrl.startsWith('/')) {
+      fullUrl = `${window.location.origin}${fullUrl}`;
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(fullUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = fullUrl;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch (err) {
+      console.warn('Failed to copy to clipboard', err);
+    }
+  };
+
   // If already authenticated, redirect
   useEffect(() => {
     if (user) {
@@ -132,12 +194,12 @@ function LoginFormContent() {
       if (!res.ok) return;
 
       const data = await res.json();
-      setWhatsappInfo({
+      setWhatsappInfo((prev) => ({
         status: data.whatsappDeliveryStatus || 'unconfigured',
         isConfigured: Boolean(data.whatsappConfigured),
         error: data.whatsappError,
-        mobileVerificationUrl: data.mobileVerificationUrl,
-      });
+        mobileVerificationUrl: data.mobileVerificationUrl || prev?.mobileVerificationUrl,
+      }));
 
       if (data.pushDeliveryStatus) {
         setPushInfo({
@@ -197,6 +259,7 @@ function LoginFormContent() {
     if (flowStep !== 'mobile_waiting' && flowStep !== 'email_sent') return;
     if (!activeTx) return;
 
+    pollSessionStatus();
     const interval = setInterval(() => {
       pollSessionStatus();
     }, 2500);
@@ -461,25 +524,98 @@ function LoginFormContent() {
                           : 'Web Push Pending Delivery'}
                       </p>
                       <p className="text-[11px] text-blue-800/90 dark:text-blue-300/80 mt-0.5">
-                        Tap the link below on your mobile device to authorize and enroll it for instant push.
+                        Tap the link below or scan the QR code on your mobile device to authorize and enroll it for instant push.
                       </p>
                     </div>
                   </div>
                 )}
 
-                {whatsappInfo?.mobileVerificationUrl && (
-                  <div className="pt-1">
-                    <a
-                      href={whatsappInfo.mobileVerificationUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 w-full justify-center bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 font-semibold px-3 py-2 rounded-lg text-xs hover:opacity-90 transition-opacity shadow-xs"
-                    >
-                      <span>Open Mobile WebAuthn Verification</span>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
+                {/* Visible, Accessible Mobile Device Registration Action */}
+                <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3.5">
+                  <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400">
+                        <QrCode className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h2 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                          Register Mobile Device
+                        </h2>
+                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                          Scan or open securely on your phone
+                        </p>
+                      </div>
+                    </div>
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
+                      Short-lived Link
+                    </span>
                   </div>
-                )}
+
+                  {whatsappInfo?.mobileVerificationUrl ? (
+                    <div className="space-y-3.5">
+                      {/* QR Code Presentation */}
+                      {qrCodeDataUrl ? (
+                        <div className="flex flex-col items-center justify-center py-1">
+                          <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white p-2 shadow-xs">
+                            <img
+                              src={qrCodeDataUrl}
+                              alt="Scan with mobile camera to register device"
+                              className="h-40 w-40 rounded-lg block"
+                            />
+                          </div>
+                          <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400 text-center flex items-center gap-1.5">
+                            <Smartphone className="h-3.5 w-3.5 text-zinc-400" />
+                            <span>Scan with your mobile camera to enroll</span>
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex h-32 items-center justify-center">
+                          <div className="h-5 w-5 border-2 border-zinc-900 dark:border-white border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+
+                      {/* Action Buttons: Copy link & Open directly */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleCopyMobileLink}
+                          className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 text-xs font-medium transition-colors cursor-pointer"
+                        >
+                          {copiedLink ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span className="text-emerald-700 dark:text-emerald-300 font-semibold">
+                                Link Copied!
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
+                              <span>Copy Mobile Link</span>
+                            </>
+                          )}
+                        </button>
+
+                        <a
+                          href={whatsappInfo.mobileVerificationUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-semibold transition-colors shadow-xs"
+                        >
+                          <span>Open Mobile Verification</span>
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-4 text-center space-y-2">
+                      <div className="h-5 w-5 border-2 border-zinc-900 dark:border-white border-t-transparent rounded-full animate-spin mx-auto" />
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        Generating secure single-use mobile challenge...
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Pending Indicator & Expiration Countdown */}

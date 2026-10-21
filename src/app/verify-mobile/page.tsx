@@ -9,9 +9,11 @@ import {
   AlertTriangle,
   RotateCcw,
   Lock,
+  Bell,
 } from 'lucide-react';
 import { detectDeviceContext } from '../../lib/deviceDetection';
 import { checkWebAuthnSupport, performWebAuthnAssertion } from '../../lib/webauthnUtils';
+import { isPushNotificationSupported, subscribeToWebPush, registerMobileDevice } from '../../lib/pushUtils';
 
 function VerifyMobileContent() {
   const searchParams = useSearchParams();
@@ -40,7 +42,19 @@ function VerifyMobileContent() {
     webauthnChallenge?: string;
     rpId?: string;
     transactionId?: string;
+    userId?: string;
   } | null>(null);
+
+  // Mobile Device Push Notification Enrollment State
+  const [isPushSupported, setIsPushSupported] = useState<boolean | null>(null);
+  const [isEnrollingPush, setIsEnrollingPush] = useState(false);
+  const [pushEnrollSuccess, setPushEnrollSuccess] = useState(false);
+  const [pushEnrollError, setPushEnrollError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isPushNotificationSupported().then(setIsPushSupported);
+  }, []);
+
 
   // 1. Initial Device & Challenge Check
   useEffect(() => {
@@ -120,6 +134,36 @@ function VerifyMobileContent() {
       setErrorMessage(msg);
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  // 2b. Enroll Device for Push Notifications
+  const handleEnrollDevicePush = async () => {
+    if (!challengeData?.userId) {
+      setPushEnrollError('User identification unavailable. Please refresh.');
+      return;
+    }
+    setIsEnrollingPush(true);
+    setPushEnrollError(null);
+
+    try {
+      const pushRes = await subscribeToWebPush(challengeData.userId);
+      if (!pushRes.success) {
+        throw new Error(pushRes.error || 'Failed to subscribe to Web Push.');
+      }
+
+      const devRes = await registerMobileDevice(challengeData.userId, 'Mobile Browser');
+      if (!devRes.success) {
+        throw new Error(devRes.error || 'Failed to enroll mobile device.');
+      }
+
+      setPushEnrollSuccess(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Push enrollment failed.';
+      setPushEnrollError(msg);
+      setPushEnrollSuccess(false);
+    } finally {
+      setIsEnrollingPush(false);
     }
   };
 
@@ -280,6 +324,58 @@ function VerifyMobileContent() {
             <p className="text-[11px]">{errorMessage}</p>
           </div>
         )}
+
+        {/* Mobile Device Push Notification Enrollment */}
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/60 p-3.5 text-left text-xs space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5 text-xs">
+              <Bell className="h-3.5 w-3.5 text-blue-500" />
+              <span>Register This Device for Push</span>
+            </span>
+            {pushEnrollSuccess && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="h-3 w-3" />
+                <span>Enrolled</span>
+              </span>
+            )}
+          </div>
+
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            Enroll this mobile browser to receive one-tap push notifications for future desktop sign-in attempts.
+          </p>
+
+          {pushEnrollError && (
+            <div className="text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 p-2 rounded-lg border border-red-200 dark:border-red-900/40">
+              {pushEnrollError}
+            </div>
+          )}
+
+          {!pushEnrollSuccess ? (
+            <button
+              type="button"
+              onClick={handleEnrollDevicePush}
+              disabled={isEnrollingPush || isVerifying}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 text-xs font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
+            >
+              {isEnrollingPush ? (
+                <>
+                  <div className="h-3 w-3 border-2 border-zinc-700 dark:border-zinc-300 border-t-transparent rounded-full animate-spin" />
+                  <span>Enrolling Push...</span>
+                </>
+              ) : (
+                <>
+                  <Smartphone className="h-3.5 w-3.5" />
+                  <span>Enable Instant Push on this Device</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-300 text-[11px] flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>This device will now receive instant push authorizations!</span>
+            </div>
+          )}
+        </div>
 
         {/* Explicit Approve and Cancel Controls */}
         <div className="space-y-2 pt-1">
