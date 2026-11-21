@@ -4,6 +4,7 @@ Implements robust SQL persistence adhering to 001_sentinel_auth_schema.sql.
 Provides transactional operations for auth_sessions, auth_challenges, user_profiles, and audit events.
 """
 import os
+import re
 import json
 import time
 import secrets
@@ -138,6 +139,31 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_reg_dev_user_id ON registered_devices(user_id);
             CREATE INDEX IF NOT EXISTS idx_reg_dev_cred_id ON registered_devices(credential_id);
+
+            CREATE TABLE IF NOT EXISTS push_login_transactions (
+                id TEXT PRIMARY KEY,
+                transaction_id TEXT UNIQUE NOT NULL,
+                user_id TEXT NOT NULL,
+                phone_number TEXT NOT NULL,
+                mobile_token_hash TEXT UNIQUE NOT NULL,
+                state TEXT NOT NULL DEFAULT 'PENDING_APPROVAL',
+                webauthn_challenge TEXT,
+                credential_id TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                browser_name TEXT,
+                os_name TEXT,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
+                approved_at REAL,
+                rejected_at REAL,
+                authenticated_at REAL,
+                completed_at REAL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_push_login_tx ON push_login_transactions(transaction_id);
+            CREATE INDEX IF NOT EXISTS idx_push_login_hash ON push_login_transactions(mobile_token_hash);
+            CREATE INDEX IF NOT EXISTS idx_push_login_state ON push_login_transactions(state);
             """)
 
             # Safe additive migration for mobile_verification_url column
@@ -552,33 +578,47 @@ def save_verified_passkey_device(
     now = time.time()
     with _db_lock:
         with get_db_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO registered_devices (
-                    id, device_id, user_id, device_name, device_type, platform,
-                    credential_id, public_key, sign_count, is_active, last_used_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-                ON CONFLICT(credential_id) DO UPDATE SET
-                    user_id = excluded.user_id,
-                    public_key = excluded.public_key,
-                    sign_count = excluded.sign_count,
-                    is_active = 1,
-                    last_used_at = excluded.last_used_at
-                """,
-                (
-                    f"passkey_{secrets.token_hex(8)}",
-                    final_device_id,
-                    user_id,
-                    device_name,
-                    "mobile",
-                    platform,
-                    credential_id,
-                    public_key,
-                    sign_count,
-                    now,
-                    now,
-                ),
-            )
+            # Check if this device_id already exists to prevent duplicate device_id clash
+            existing = conn.execute("SELECT id FROM registered_devices WHERE device_id = ?", (final_device_id,)).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE registered_devices
+                    SET user_id = ?, credential_id = ?, public_key = ?, sign_count = ?,
+                        is_active = 1, last_used_at = ?, device_name = ?, platform = ?
+                    WHERE device_id = ?
+                    """,
+                    (user_id, credential_id, public_key, sign_count, now, device_name, platform, final_device_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO registered_devices (
+                        id, device_id, user_id, device_name, device_type, platform,
+                        credential_id, public_key, sign_count, is_active, last_used_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    ON CONFLICT(credential_id) DO UPDATE SET
+                        device_id = excluded.device_id,
+                        user_id = excluded.user_id,
+                        public_key = excluded.public_key,
+                        sign_count = excluded.sign_count,
+                        is_active = 1,
+                        last_used_at = excluded.last_used_at
+                    """,
+                    (
+                        f"passkey_{secrets.token_hex(8)}",
+                        final_device_id,
+                        user_id,
+                        device_name,
+                        "mobile",
+                        platform,
+                        credential_id,
+                        public_key,
+                        sign_count,
+                        now,
+                        now,
+                    ),
+                )
     return {
         "deviceId": final_device_id,
         "credentialId": credential_id,
@@ -1028,5 +1068,207 @@ def update_security_preferences(user_id: str, prefs: Dict[str, bool]) -> Dict[st
                 ),
             )
     return get_security_preferences(user_id)
+
+
+def get_user_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
+    """Retrieves verified user identity by normalized phone number."""
+    if not phone_number:
+        return None
+    # Strip spaces, hyphens, and parens for uniform matching
+    clean_digits = re.sub(r"[^\d+]", "", phone_number.strip())
+    with _db_lock:
+        with get_db_connection() as conn:
+            # 1. Check user_profiles
+            cur = conn.execute(
+                """
+                SELECT user_id, email, phone_number, full_name, display_name
+                FROM user_profiles
+                WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone_number, ' ', ''), '-', ''), '(', ''), ')', '') = ?
+                   OR phone_number = ?
+                LIMIT 1
+                """,
+                (clean_digits, phone_number.strip()),
+            )
+            r = cur.fetchone()
+            if r:
+                return {
+                    "userId": r["user_id"],
+                    "email": r["email"],
+                    "phoneNumber": r["phone_number"],
+                    "displayName": r["display_name"] or r["full_name"] or r["email"].split("@")[0],
+                }
+
+            # 2. Fallback to auth_sessions where phone was verified
+            cur2 = conn.execute(
+                """
+                SELECT user_id, email, phone_number
+                FROM auth_sessions
+                WHERE (REPLACE(REPLACE(REPLACE(REPLACE(phone_number, ' ', ''), '-', ''), '(', ''), ')', '') = ?
+                   OR phone_number = ?)
+                  AND user_id IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (clean_digits, phone_number.strip()),
+            )
+            r2 = cur2.fetchone()
+            if r2:
+                return {
+                    "userId": r2["user_id"],
+                    "email": r2["email"],
+                    "phoneNumber": r2["phone_number"],
+                    "displayName": r2["email"].split("@")[0],
+                }
+            return None
+
+
+def save_push_login_transaction(tx: Dict[str, Any]) -> None:
+    """Inserts or replaces a push login transaction in SQLite."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO push_login_transactions (
+                    id, transaction_id, user_id, phone_number, mobile_token_hash,
+                    state, webauthn_challenge, credential_id, ip_address, user_agent,
+                    browser_name, os_name, created_at, expires_at, approved_at,
+                    rejected_at, authenticated_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(transaction_id) DO UPDATE SET
+                    state = excluded.state,
+                    webauthn_challenge = excluded.webauthn_challenge,
+                    credential_id = excluded.credential_id,
+                    approved_at = excluded.approved_at,
+                    rejected_at = excluded.rejected_at,
+                    authenticated_at = excluded.authenticated_at,
+                    completed_at = excluded.completed_at
+                """,
+                (
+                    tx.get("id") or f"ptx_{secrets.token_hex(8)}",
+                    tx["transactionId"],
+                    tx["userId"],
+                    tx["phoneNumber"],
+                    tx["mobileTokenHash"],
+                    tx.get("state", "PENDING_APPROVAL"),
+                    tx.get("webauthnChallenge"),
+                    tx.get("credentialId"),
+                    tx.get("ipAddress"),
+                    tx.get("userAgent"),
+                    tx.get("browserName", "Browser"),
+                    tx.get("osName", "Device"),
+                    tx["createdAt"],
+                    tx["expiresAt"],
+                    tx.get("approvedAt"),
+                    tx.get("rejectedAt"),
+                    tx.get("authenticatedAt"),
+                    tx.get("completedAt"),
+                ),
+            )
+
+
+def get_push_login_transaction(transaction_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves a push login transaction by transaction_id."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM push_login_transactions WHERE transaction_id = ?",
+                (transaction_id,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return None
+            return {
+                "id": r["id"],
+                "transactionId": r["transaction_id"],
+                "userId": r["user_id"],
+                "phoneNumber": r["phone_number"],
+                "mobileTokenHash": r["mobile_token_hash"],
+                "state": r["state"],
+                "webauthnChallenge": r["webauthn_challenge"],
+                "credentialId": r["credential_id"],
+                "ipAddress": r["ip_address"],
+                "userAgent": r["user_agent"],
+                "browserName": r["browser_name"],
+                "osName": r["os_name"],
+                "createdAt": r["created_at"],
+                "expiresAt": r["expires_at"],
+                "approvedAt": r["approved_at"],
+                "rejectedAt": r["rejected_at"],
+                "authenticatedAt": r["authenticated_at"],
+                "completedAt": r["completed_at"],
+            }
+
+
+def get_push_login_transaction_by_hash(token_hash: str) -> Optional[Dict[str, Any]]:
+    """Retrieves a push login transaction by mobile token hash."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM push_login_transactions WHERE mobile_token_hash = ?",
+                (token_hash,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return None
+            return {
+                "id": r["id"],
+                "transactionId": r["transaction_id"],
+                "userId": r["user_id"],
+                "phoneNumber": r["phone_number"],
+                "mobileTokenHash": r["mobile_token_hash"],
+                "state": r["state"],
+                "webauthnChallenge": r["webauthn_challenge"],
+                "credentialId": r["credential_id"],
+                "ipAddress": r["ip_address"],
+                "userAgent": r["user_agent"],
+                "browserName": r["browser_name"],
+                "osName": r["os_name"],
+                "createdAt": r["created_at"],
+                "expiresAt": r["expires_at"],
+                "approvedAt": r["approved_at"],
+                "rejectedAt": r["rejected_at"],
+                "authenticatedAt": r["authenticated_at"],
+                "completedAt": r["completed_at"],
+            }
+
+
+def update_push_login_transaction_state(
+    transaction_id: str,
+    new_state: str,
+    webauthn_challenge: Optional[str] = None,
+    credential_id: Optional[str] = None,
+    approved_at: Optional[float] = None,
+    rejected_at: Optional[float] = None,
+    authenticated_at: Optional[float] = None,
+    completed_at: Optional[float] = None,
+) -> bool:
+    """Updates the state and lifecycle timestamps of a push login transaction."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE push_login_transactions
+                SET state = ?,
+                    webauthn_challenge = COALESCE(?, webauthn_challenge),
+                    credential_id = COALESCE(?, credential_id),
+                    approved_at = COALESCE(?, approved_at),
+                    rejected_at = COALESCE(?, rejected_at),
+                    authenticated_at = COALESCE(?, authenticated_at),
+                    completed_at = COALESCE(?, completed_at)
+                WHERE transaction_id = ?
+                """,
+                (
+                    new_state,
+                    webauthn_challenge,
+                    credential_id,
+                    approved_at,
+                    rejected_at,
+                    authenticated_at,
+                    completed_at,
+                    transaction_id,
+                ),
+            )
+            return cur.rowcount > 0
+
 
 

@@ -48,7 +48,8 @@ interface AuthContextType {
     transactionId: string
   ) => Promise<{ success: boolean; error?: string }>;
   completeSession: (
-    transactionId: string
+    transactionId: string,
+    isPush?: boolean
   ) => Promise<{ success: boolean; user?: AuthUser; onboardingCompleted?: boolean; error?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
@@ -276,10 +277,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Step 3: Complete Computer Session (revalidates both gates on server)
   const completeSession = useCallback(
     async (
-      transactionId: string
+      transactionId: string,
+      isPush: boolean = false
     ): Promise<{ success: boolean; user?: AuthUser; onboardingCompleted?: boolean; error?: string }> => {
       try {
-        const res = await fetch('/api/auth/complete', {
+        const endpoint = isPush ? '/api/auth/push-login/complete' : '/api/auth/complete';
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ transactionId }),

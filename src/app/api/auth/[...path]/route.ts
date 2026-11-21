@@ -52,7 +52,7 @@ async function forwardRequest(request: NextRequest, pathParts: string[]) {
     });
 
     // If session completion succeeded, set HttpOnly cookie
-    if (path === 'complete' && backendRes.ok && typeof json?.sessionToken === 'string') {
+    if ((path === 'complete' || path.endsWith('/complete')) && backendRes.ok && typeof json?.sessionToken === 'string') {
       response.cookies.set({
         name: 'sentinel_session',
         value: json.sessionToken,

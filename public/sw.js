@@ -43,7 +43,7 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
-        if (client.url.includes('/verify-mobile') && 'focus' in client) {
+        if ((client.url.includes('/verify-mobile') || client.url.includes('/approve-login')) && 'focus' in client) {
           if (targetUrl) {
             client.navigate(targetUrl);
           }

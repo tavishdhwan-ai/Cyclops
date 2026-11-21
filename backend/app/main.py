@@ -699,5 +699,166 @@ async def list_user_devices_endpoint(user_id: str):
     return {"userId": user_id, "devices": devices}
 
 
+# ==============================================================================
+# Push-To-Approve Mobile Passkey Login Endpoints
+# ==============================================================================
+
+from app.push_auth_engine import (
+    start_push_login_transaction,
+    get_push_transaction_status,
+    get_push_transaction_details,
+    reject_push_login,
+    approve_push_login,
+    verify_push_login_passkey,
+    finalize_push_login_session,
+)
+
+
+class PushLoginStartRequest(BaseModel):
+    phoneNumber: str
+
+
+class PushLoginRejectRequest(BaseModel):
+    transactionId: str
+    token: str
+
+
+class PushLoginApproveRequest(BaseModel):
+    transactionId: str
+    token: str
+
+
+class PushLoginVerifyPasskeyRequest(BaseModel):
+    transactionId: str
+    token: str
+    credentialId: str
+    clientDataJSON: str
+    authenticatorData: str
+    signature: str
+    userHandle: Optional[str] = None
+
+
+class PushLoginCompleteRequest(BaseModel):
+    transactionId: str
+
+
+@app.post("/api/auth/push-login/start", tags=["Push Login"])
+async def push_login_start_endpoint(
+    payload: PushLoginStartRequest,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 1: Start Push-To-Approve Login.
+    Validates registered phone, creates expiring transaction, and dispatches real Web Push.
+    """
+    ip_address = request.client.host if request.client else None
+    return start_push_login_transaction(
+        raw_phone=payload.phoneNumber,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+@app.get("/api/auth/push-login/status/{transaction_id}", tags=["Push Login"])
+async def push_login_status_endpoint(transaction_id: str):
+    """
+    Polled by original waiting device. Returns current state of login transaction.
+    """
+    return get_push_transaction_status(transaction_id)
+
+
+@app.get("/api/auth/push-login/details", tags=["Push Login"])
+async def push_login_details_endpoint(
+    tx: str = Query(...),
+    tok: str = Query(...),
+):
+    """
+    Called by registered mobile browser opening notification URL.
+    Returns request metadata (device, browser, request time, status).
+    """
+    return get_push_transaction_details(transaction_id=tx, mobile_token=tok)
+
+
+@app.post("/api/auth/push-login/reject", tags=["Push Login"])
+async def push_login_reject_endpoint(
+    payload: PushLoginRejectRequest,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 2B: Mobile user taps 'No, it's not me'.
+    Immediately blocks the transaction and prevents any further authentication.
+    """
+    ip_address = request.client.host if request.client else None
+    return reject_push_login(
+        transaction_id=payload.transactionId,
+        mobile_token=payload.token,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+@app.post("/api/auth/push-login/approve", tags=["Push Login"])
+async def push_login_approve_endpoint(
+    payload: PushLoginApproveRequest,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 2A: Mobile user taps 'Yes, it's me'.
+    Does NOT authorize by itself! Transitions to AWAITING_PASSKEY and returns WebAuthn options.
+    """
+    ip_address = request.client.host if request.client else None
+    return approve_push_login(
+        transaction_id=payload.transactionId,
+        mobile_token=payload.token,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+@app.post("/api/auth/push-login/verify-passkey", tags=["Push Login"])
+async def push_login_verify_passkey_endpoint(
+    payload: PushLoginVerifyPasskeyRequest,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 3: Cryptographically verifies the mobile passkey assertion.
+    Marks transaction AUTHENTICATED on success.
+    """
+    ip_address = request.client.host if request.client else None
+    return verify_push_login_passkey(
+        transaction_id=payload.transactionId,
+        mobile_token=payload.token,
+        credential_id=payload.credentialId,
+        client_data_json=payload.clientDataJSON,
+        authenticator_data=payload.authenticatorData,
+        signature=payload.signature,
+        user_handle=payload.userHandle,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
+@app.post("/api/auth/push-login/complete", tags=["Push Login"])
+async def push_login_complete_endpoint(
+    payload: PushLoginCompleteRequest,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Step 4: Finalizes session on original device after mobile passkey succeeds.
+    Single-use consumption: marks COMPLETED and creates authenticated session token.
+    """
+    ip_address = request.client.host if request.client else None
+    return finalize_push_login_session(
+        transaction_id=payload.transactionId,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+
 
 

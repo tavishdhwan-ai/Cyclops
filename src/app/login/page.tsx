@@ -63,8 +63,8 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
     return null;
   });
 
-  // Flow States: 'input' | 'email_sent' | 'mobile_waiting' | 'completing'
-  const [flowStep, setFlowStep] = useState<'input' | 'email_sent' | 'mobile_waiting' | 'completing'>(
+  // Flow States: 'input' | 'email_sent' | 'mobile_waiting' | 'push_waiting' | 'completing'
+  const [flowStep, setFlowStep] = useState<'input' | 'email_sent' | 'mobile_waiting' | 'push_waiting' | 'completing'>(
     urlStep === 'mobile_waiting' && urlTx ? 'mobile_waiting' : 'input'
   );
 
@@ -90,6 +90,130 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
 
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // Push-To-Approve Dedicated States
+  const [pushTx, setPushTx] = useState<string>('');
+  const [pushState, setPushState] = useState<string>('PENDING_APPROVAL');
+  const [pushExpiresAt, setPushExpiresAt] = useState<number | null>(null);
+  const [pushSecondsRemaining, setPushSecondsRemaining] = useState<number | null>(null);
+  const [pushMobileUrl, setPushMobileUrl] = useState<string | null>(null);
+  const [pushQrCodeUrl, setPushQrCodeUrl] = useState<string | null>(null);
+  const [showPushQrFallback, setShowPushQrFallback] = useState(false);
+  const [copiedPushLink, setCopiedPushLink] = useState(false);
+  const [useEmailFallbackForLogin, setUseEmailFallbackForLogin] = useState(false);
+
+  // Generate Push QR Code data URL when pushMobileUrl is available
+  useEffect(() => {
+    let active = true;
+    if (pushMobileUrl) {
+      let fullUrl = pushMobileUrl;
+      if (typeof window !== 'undefined' && fullUrl.startsWith('/')) {
+        fullUrl = `${window.location.origin}${fullUrl}`;
+      }
+      QRCode.toDataURL(fullUrl, {
+        width: 192,
+        margin: 1,
+        color: { dark: '#09090b', light: '#ffffff' },
+      })
+        .then((url) => {
+          if (active) setPushQrCodeUrl(url);
+        })
+        .catch((err) => {
+          console.error('Failed to generate push QR code', err);
+        });
+    } else {
+      setPushQrCodeUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [pushMobileUrl]);
+
+  // Handle copying short-lived push mobile approval link
+  const handleCopyPushMobileLink = async () => {
+    if (!pushMobileUrl) return;
+    let fullUrl = pushMobileUrl;
+    if (typeof window !== 'undefined' && fullUrl.startsWith('/')) {
+      fullUrl = `${window.location.origin}${fullUrl}`;
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(fullUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = fullUrl;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedPushLink(true);
+      setTimeout(() => setCopiedPushLink(false), 2500);
+    } catch (err) {
+      console.warn('Failed to copy push link to clipboard', err);
+    }
+  };
+
+  // Push-To-Approve Status Polling Loop
+  useEffect(() => {
+    if (flowStep !== 'push_waiting' || !pushTx) return;
+
+    let active = true;
+    const pollPushStatus = async () => {
+      try {
+        const res = await fetch(`/api/auth/push-login/status/${encodeURIComponent(pushTx)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active) return;
+
+        setPushState(data.state);
+
+        if (data.authenticated || data.state === 'AUTHENTICATED') {
+          setFlowStep('completing');
+          const sessionRes = await completeSession(pushTx, true);
+          if (sessionRes.success) {
+            if (sessionRes.onboardingCompleted === false) {
+              router.push('/onboarding');
+            } else {
+              router.push(nextDestination);
+            }
+          } else {
+            setGeneralError(sessionRes.error || 'Failed to complete push login session.');
+            setFlowStep('input');
+          }
+        }
+      } catch (err) {
+        console.warn('Push login status poll error:', err);
+      }
+    };
+
+    pollPushStatus();
+    const interval = setInterval(pollPushStatus, 2000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [flowStep, pushTx, completeSession, nextDestination, router]);
+
+  // Push-To-Approve Countdown Timer
+  useEffect(() => {
+    if (!pushExpiresAt || flowStep !== 'push_waiting') {
+      setPushSecondsRemaining(null);
+      return;
+    }
+
+    const updatePushTimer = () => {
+      const diff = Math.max(0, Math.floor(pushExpiresAt - Date.now() / 1000));
+      setPushSecondsRemaining(diff);
+      if (diff <= 0) {
+        setPushState('EXPIRED');
+      }
+    };
+
+    updatePushTimer();
+    const interval = setInterval(updatePushTimer, 1000);
+    return () => clearInterval(interval);
+  }, [pushExpiresAt, flowStep]);
 
   // Generate QR Code data URL when mobileVerificationUrl is available
   useEffect(() => {
@@ -165,6 +289,43 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
     setPhoneError(null);
     setGeneralError(null);
 
+    // Pathway 1: Standard Push-To-Approve Sign In (Requires ONLY Phone Number)
+    if (authMode === 'signin' && !useEmailFallbackForLogin) {
+      const phoneVal = normalizePhoneNumber(phone);
+      if (!phoneVal.isValid) {
+        setPhoneError(phoneVal.error || 'Please enter a valid registered mobile number with country code.');
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/auth/push-login/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber: phoneVal.normalized }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Failed to start Push-To-Approve login.');
+        }
+
+        const data = await res.json();
+        setPushTx(data.transactionId);
+        setPushState(data.state || 'PENDING_APPROVAL');
+        setPushExpiresAt(data.expiresAt);
+        setPushMobileUrl(data.mobileApprovalUrl || null);
+        setFlowStep('push_waiting');
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'An unexpected error occurred starting login.';
+        setGeneralError(msg);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // Pathway 2: Two-Channel Sign Up OR Email Fallback Sign In
     const emailVal = validateEmail(email);
     if (!emailVal.isValid) {
       setEmailError(emailVal.error || 'Please enter a valid email address.');
@@ -331,7 +492,7 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             {authMode === 'signup'
               ? 'Register a passwordless biometric identity with hardware-backed passkeys.'
-              : 'Two-channel passwordless authentication via email and mobile passkey.'}
+              : 'Passwordless push authorization to your registered mobile passkey.'}
           </p>
         </div>
 
@@ -354,8 +515,13 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
               <div className="grid grid-cols-2 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
                 <button
                   type="button"
-                  onClick={() => setAuthMode('signin')}
-                  className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+                  onClick={() => {
+                    setAuthMode('signin');
+                    setUseEmailFallbackForLogin(false);
+                    setEmailError(null);
+                    setPhoneError(null);
+                  }}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                     authMode === 'signin'
                       ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-xs'
                       : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
@@ -365,8 +531,12 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAuthMode('signup')}
-                  className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+                  onClick={() => {
+                    setAuthMode('signup');
+                    setEmailError(null);
+                    setPhoneError(null);
+                  }}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                     authMode === 'signup'
                       ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-xs'
                       : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
@@ -376,91 +546,163 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} noValidate className="space-y-4">
-                {/* Gate 1: Email Address */}
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="email-input"
-                    className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
-                  >
-                    Work or Personal Email
-                  </label>
-                  <div className="relative">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                      <Mail className="h-4 w-4 text-zinc-400" />
+              {/* FORM A: PHONE-ONLY PUSH LOGIN (Sign In Mode) */}
+              {authMode === 'signin' && !useEmailFallbackForLogin ? (
+                <form onSubmit={handleSubmit} noValidate className="space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label
+                        htmlFor="phone-input"
+                        className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
+                      >
+                        Registered Mobile Phone Number
+                      </label>
+                      <span className="text-[10px] text-zinc-400">All Countries</span>
                     </div>
-                    <input
-                      id="email-input"
-                      type="email"
-                      autoComplete="email"
-                      value={email}
-                      onChange={(e) => {
-                        setEmail(e.target.value);
-                        if (emailError) setEmailError(null);
+                    <InternationalPhoneInput
+                      id="phone-input"
+                      value={phone}
+                      onChange={(normalizedVal, isValid, err) => {
+                        setPhone(normalizedVal);
+                        if (phoneError) setPhoneError(err || null);
                       }}
-                      placeholder="you@company.com"
                       disabled={isLoading}
-                      className={`block w-full rounded-lg border pl-9 pr-3 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 transition-colors ${
-                        emailError
-                          ? 'border-red-400 focus:border-red-500 focus:ring-red-200 dark:focus:ring-red-900/40 bg-red-50/20'
-                          : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:border-zinc-900 dark:focus:border-zinc-100 focus:ring-zinc-200 dark:focus:ring-zinc-800'
-                      }`}
+                      error={phoneError}
                     />
-                  </div>
-                  {emailError && (
-                    <p className="text-[11px] font-medium text-red-600 dark:text-red-400" role="alert">
-                      {emailError}
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      We will dispatch a secure push notification to your phone. Simply approve with your passkey.
                     </p>
-                  )}
-                </div>
+                  </div>
 
-                {/* Gate 2: Mobile Number for WhatsApp with Worldwide Country Selector */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-900 dark:bg-white px-4 py-2.5 text-xs font-semibold text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors shadow-xs cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-zinc-400"
+                  >
+                    {isLoading ? (
+                      <>
+                        <div className="h-3.5 w-3.5 border-2 border-white dark:border-zinc-900 border-t-transparent rounded-full animate-spin" />
+                        <span>Sending Push Request...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Continue</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </>
+                    )}
+                  </button>
+
+                  <div className="pt-2 text-center border-t border-zinc-100 dark:border-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => setUseEmailFallbackForLogin(true)}
+                      className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 underline cursor-pointer"
+                    >
+                      Didn&apos;t receive a notification? Sign in with Email verification instead
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* FORM B: TWO-CHANNEL REGISTRATION OR EMAIL FALLBACK LOGIN */
+                <form onSubmit={handleSubmit} noValidate className="space-y-4">
+                  {authMode === 'signin' && useEmailFallbackForLogin && (
+                    <div className="flex items-center justify-between text-xs pb-1">
+                      <span className="font-medium text-zinc-500">Email Verification Fallback</span>
+                      <button
+                        type="button"
+                        onClick={() => setUseEmailFallbackForLogin(false)}
+                        className="text-emerald-600 dark:text-emerald-400 hover:underline font-semibold cursor-pointer"
+                      >
+                        ← Back to Push Login
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Gate 1: Email Address */}
+                  <div className="space-y-1.5">
                     <label
-                      htmlFor="phone-input"
+                      htmlFor="email-input"
                       className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
                     >
-                      Mobile Phone Number (WhatsApp)
+                      Work or Personal Email
                     </label>
-                    <span className="text-[10px] text-zinc-400">All Countries Supported</span>
+                    <div className="relative">
+                      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                        <Mail className="h-4 w-4 text-zinc-400" />
+                      </div>
+                      <input
+                        id="email-input"
+                        type="email"
+                        autoComplete="email"
+                        value={email}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          if (emailError) setEmailError(null);
+                        }}
+                        placeholder="you@company.com"
+                        disabled={isLoading}
+                        className={`block w-full rounded-lg border pl-9 pr-3 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 transition-colors ${
+                          emailError
+                            ? 'border-red-400 focus:border-red-500 focus:ring-red-200 dark:focus:ring-red-900/40 bg-red-50/20'
+                            : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:border-zinc-900 dark:focus:border-zinc-100 focus:ring-zinc-200 dark:focus:ring-zinc-800'
+                        }`}
+                      />
+                    </div>
+                    {emailError && (
+                      <p className="text-[11px] font-medium text-red-600 dark:text-red-400" role="alert">
+                        {emailError}
+                      </p>
+                    )}
                   </div>
-                  <InternationalPhoneInput
-                    id="phone-input"
-                    value={phone}
-                    onChange={(normalizedVal, isValid, err) => {
-                      setPhone(normalizedVal);
-                      if (phoneError) setPhoneError(err || null);
-                    }}
-                    disabled={isLoading}
-                    error={phoneError}
-                  />
-                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                    {authMode === 'signup'
-                      ? 'We will send a one-time passkey enrollment link to your WhatsApp upon email verification.'
-                      : 'We will send a one-time biometric verification link to your WhatsApp upon email verification.'}
-                  </p>
-                </div>
 
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-900 dark:bg-white px-4 py-2.5 text-xs font-semibold text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors shadow-xs cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-zinc-400"
-                >
-                  {isLoading ? (
-                    <>
-                      <div className="h-3.5 w-3.5 border-2 border-white dark:border-zinc-900 border-t-transparent rounded-full animate-spin" />
-                      <span>{authMode === 'signup' ? 'Initiating Registration...' : 'Initiating Authentication...'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>{authMode === 'signup' ? 'Create Account & Verify Identity' : 'Sign In with Two-Channel Verification'}</span>
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </>
-                  )}
-                </button>
-              </form>
+                  {/* Gate 2: Mobile Number for WhatsApp with Worldwide Country Selector */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label
+                        htmlFor="phone-input"
+                        className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
+                      >
+                        Mobile Phone Number (WhatsApp)
+                      </label>
+                      <span className="text-[10px] text-zinc-400">All Countries Supported</span>
+                    </div>
+                    <InternationalPhoneInput
+                      id="phone-input"
+                      value={phone}
+                      onChange={(normalizedVal, isValid, err) => {
+                        setPhone(normalizedVal);
+                        if (phoneError) setPhoneError(err || null);
+                      }}
+                      disabled={isLoading}
+                      error={phoneError}
+                    />
+                    <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      {authMode === 'signup'
+                        ? 'We will send a one-time passkey enrollment link to your WhatsApp upon email verification.'
+                        : 'We will send a one-time biometric verification link to your WhatsApp upon email verification.'}
+                    </p>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-900 dark:bg-white px-4 py-2.5 text-xs font-semibold text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors shadow-xs cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-zinc-400"
+                  >
+                    {isLoading ? (
+                      <>
+                        <div className="h-3.5 w-3.5 border-2 border-white dark:border-zinc-900 border-t-transparent rounded-full animate-spin" />
+                        <span>{authMode === 'signup' ? 'Initiating Registration...' : 'Initiating Authentication...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{authMode === 'signup' ? 'Create Account & Verify Identity' : 'Sign In with Two-Channel Verification'}</span>
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
 
               {/* Bottom Mode Switcher */}
               <div className="pt-2 text-center border-t border-zinc-100 dark:border-zinc-800">
@@ -469,7 +711,10 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                     Already have an account?{' '}
                     <button
                       type="button"
-                      onClick={() => setAuthMode('signin')}
+                      onClick={() => {
+                        setAuthMode('signin');
+                        setUseEmailFallbackForLogin(false);
+                      }}
                       className="font-semibold text-zinc-900 dark:text-zinc-100 underline hover:opacity-80 cursor-pointer"
                     >
                       Sign In
@@ -721,6 +966,215 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                   className="w-full py-2 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                 >
                   Cancel pending attempt
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* FLOW STEP: PUSH-TO-APPROVE WAITING SCREEN */}
+          {flowStep === 'push_waiting' && (
+            <div className="space-y-5 text-center">
+              {/* Header Icon with Dynamic Pulse */}
+              <div className="relative mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 shadow-lg">
+                {pushState === 'REJECTED' ? (
+                  <AlertTriangle className="h-8 w-8 text-rose-500" />
+                ) : pushState === 'EXPIRED' ? (
+                  <Clock className="h-8 w-8 text-amber-500" />
+                ) : pushState === 'AWAITING_PASSKEY' ? (
+                  <Fingerprint className="h-8 w-8 text-emerald-400 animate-pulse" />
+                ) : (
+                  <>
+                    <Smartphone className="h-8 w-8" />
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500" />
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Title & Status */}
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-[11px] font-semibold mb-1">
+                  <Shield className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>SentinelAI Push-To-Approve</span>
+                </div>
+
+                <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  {pushState === 'REJECTED'
+                    ? 'Login Rejected on Mobile'
+                    : pushState === 'EXPIRED'
+                    ? 'Login Request Expired'
+                    : pushState === 'AWAITING_PASSKEY'
+                    ? 'Approval Received — Verify Passkey'
+                    : 'Waiting for Phone Approval...'}
+                </h1>
+
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed max-w-sm mx-auto">
+                  {pushState === 'REJECTED'
+                    ? 'The login request was declined on your mobile device.'
+                    : pushState === 'EXPIRED'
+                    ? 'The 2-minute authorization window has expired.'
+                    : pushState === 'AWAITING_PASSKEY'
+                    ? 'Please authorize using your fingerprint or Face ID on your mobile device.'
+                    : `We sent a push notification to ${maskPhoneNumber(phone)}. Tap "Yes, it's me" on your device.`}
+                </p>
+              </div>
+
+              {/* Status Card & Live Timer */}
+              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/70 p-4 text-left text-xs space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-zinc-200/60 dark:border-zinc-800/60">
+                  <span className="text-zinc-500 dark:text-zinc-400">Target Device</span>
+                  <span className="font-mono font-semibold text-zinc-900 dark:text-zinc-100">
+                    {maskPhoneNumber(phone)}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pb-2 border-b border-zinc-200/60 dark:border-zinc-800/60">
+                  <span className="text-zinc-500 dark:text-zinc-400">Current State</span>
+                  <span
+                    className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
+                      pushState === 'REJECTED'
+                        ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400'
+                        : pushState === 'EXPIRED'
+                        ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400'
+                        : pushState === 'AWAITING_PASSKEY'
+                        ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 animate-pulse'
+                        : 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400'
+                    }`}
+                  >
+                    {pushState === 'REJECTED'
+                      ? 'Login Rejected'
+                      : pushState === 'EXPIRED'
+                      ? 'Request Expired'
+                      : pushState === 'AWAITING_PASSKEY'
+                      ? 'Passkey Verification Pending'
+                      : 'Waiting for Phone Approval'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-zinc-400" />
+                    <span>Time Remaining</span>
+                  </span>
+                  <span className="font-mono font-bold text-zinc-800 dark:text-zinc-200">
+                    {pushSecondsRemaining !== null && pushSecondsRemaining >= 0
+                      ? `${Math.floor(pushSecondsRemaining / 60)}:${String(pushSecondsRemaining % 60).padStart(2, '0')}`
+                      : '0:00'}
+                  </span>
+                </div>
+              </div>
+
+              {/* If Rejected or Expired, provide immediate Try Again button */}
+              {(pushState === 'REJECTED' || pushState === 'EXPIRED') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlowStep('input');
+                    setPushTx('');
+                  }}
+                  className="w-full py-2.5 px-4 rounded-lg bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
+                >
+                  Try Again
+                </button>
+              )}
+
+              {/* Fallback Option: QR Code / Direct Link */}
+              {pushState !== 'REJECTED' && pushState !== 'EXPIRED' && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowPushQrFallback((prev) => !prev)}
+                    className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 underline cursor-pointer"
+                  >
+                    {showPushQrFallback
+                      ? 'Hide manual verification options'
+                      : 'Didn’t receive a notification? Scan QR Code or open approval link'}
+                  </button>
+
+                  {showPushQrFallback && (
+                    <div className="mt-3 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-3">
+                      {pushQrCodeUrl ? (
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white p-2">
+                            <img
+                              src={pushQrCodeUrl}
+                              alt="Scan with phone camera to approve"
+                              className="h-36 w-36 rounded block"
+                            />
+                          </div>
+                          <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                            Scan with your mobile camera to approve immediately
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="h-28 flex items-center justify-center">
+                          <div className="h-5 w-5 border-2 border-zinc-900 dark:border-white border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleCopyPushMobileLink}
+                          className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 text-xs font-medium transition-colors cursor-pointer"
+                        >
+                          {copiedPushLink ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span className="text-emerald-700 dark:text-emerald-300 font-semibold">
+                                Link Copied!
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
+                              <span>Copy Approval Link</span>
+                            </>
+                          )}
+                        </button>
+
+                        {pushMobileUrl && (
+                          <a
+                            href={pushMobileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-semibold transition-colors shadow-xs"
+                          >
+                            <span>Open Approval Page</span>
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Secondary Alternate Flow & Cancel Options */}
+              <div className="pt-2 space-y-2 border-t border-zinc-100 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseEmailFallbackForLogin(true);
+                    setFlowStep('input');
+                    setPushTx('');
+                  }}
+                  className="w-full text-center text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 underline cursor-pointer"
+                >
+                  Sign in with Email verification instead
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFlowStep('input');
+                    setPushTx('');
+                  }}
+                  className="w-full py-2 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                >
+                  Cancel and return to Sign In
                 </button>
               </div>
             </div>
