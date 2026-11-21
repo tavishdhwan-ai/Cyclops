@@ -1,10 +1,12 @@
 import logging
 import secrets
-from typing import Optional
-from fastapi import FastAPI, Request, status, UploadFile, File, Header, HTTPException, Depends
+import base64
+from typing import Optional, Dict, Any, List
+from fastapi import FastAPI, Request, status, UploadFile, File, Header, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from app import database
 
 logger = logging.getLogger("sentinel.main")
 
@@ -236,6 +238,187 @@ async def delete_account_endpoint(
         "deleted": deleted,
         "message": "User account and associated profile data have been permanently erased.",
     }
+
+
+@app.get("/api/user/check-username", tags=["User Profile"])
+async def check_username_endpoint(
+    username: str = Query(..., min_length=1, max_length=50),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """
+    Check if a given username is valid and available across all accounts.
+    Allows current user to keep their own username if editing.
+    """
+    exclude_user_id = None
+    if authorization:
+        try:
+            user_ctx = await get_current_user(authorization)
+            exclude_user_id = user_ctx.user_id
+        except Exception:
+            pass
+
+    clean_user = username.strip().lower()
+    is_avail = database.check_username_available(clean_user, exclude_user_id=exclude_user_id)
+    return {
+        "username": clean_user,
+        "available": is_avail,
+    }
+
+
+@app.post("/api/user/avatar", tags=["User Profile"])
+async def upload_avatar_endpoint(
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+):
+    """
+    Accepts an uploaded image file (JPEG, PNG, WEBP), validates size (<= 5MB),
+    and stores it as a secure data URL in the user's profile.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to upload profile avatar.",
+        )
+    user_ctx = await get_current_user(authorization)
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    content_type = file.content_type or ""
+    if content_type.lower() not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid image format. Allowed formats: JPEG, PNG, WEBP, GIF.",
+        )
+
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds the 5MB maximum limit.",
+        )
+
+    b64_encoded = base64.b64encode(contents).decode("utf-8")
+    data_uri = f"data:{content_type};base64,{b64_encoded}"
+
+    # Persist avatar into user profile
+    save_user_profile(user_ctx.user_id, {"profilePictureUrl": data_uri})
+
+    return {
+        "success": True,
+        "avatarUrl": data_uri,
+        "message": "Profile picture updated successfully.",
+    }
+
+
+# ==============================================================================
+# Security & Devices Management Endpoints
+# ==============================================================================
+
+@app.get("/api/security/passkeys", tags=["Security Dashboard"])
+async def get_passkeys_endpoint(user: UserContext = Depends(get_current_user)):
+    """Retrieve all active WebAuthn passkeys registered to the current user."""
+    passkeys = database.get_user_registered_passkeys(user.user_id)
+    return {"passkeys": passkeys}
+
+
+@app.delete("/api/security/passkeys/{credential_id}", tags=["Security Dashboard"])
+async def revoke_passkey_endpoint(
+    credential_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    """Revoke a specific WebAuthn passkey belonging to the current user."""
+    revoked = database.revoke_passkey_credential(user.user_id, credential_id)
+    if not revoked:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Passkey credential not found or already revoked.",
+        )
+    return {"success": True, "message": "Passkey credential has been revoked."}
+
+
+@app.get("/api/security/devices", tags=["Security Dashboard"])
+async def get_trusted_devices_endpoint(user: UserContext = Depends(get_current_user)):
+    """Retrieve all trusted devices enrolled for the current user."""
+    devices = database.get_user_trusted_devices(user.user_id)
+    return {"devices": devices}
+
+
+@app.delete("/api/security/devices/{device_id}", tags=["Security Dashboard"])
+async def revoke_device_endpoint(
+    device_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    """Revoke a specific trusted device and its associated push subscriptions."""
+    revoked = database.revoke_trusted_device(user.user_id, device_id)
+    if not revoked:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found or already revoked.",
+        )
+    return {"success": True, "message": "Device access revoked."}
+
+
+@app.get("/api/security/sessions", tags=["Security Dashboard"])
+async def get_sessions_endpoint(user: UserContext = Depends(get_current_user)):
+    """Retrieve all active sessions for the current user."""
+    sessions = database.get_user_active_sessions(user.user_id)
+    return {"sessions": sessions}
+
+
+@app.delete("/api/security/sessions/{session_id}", tags=["Security Dashboard"])
+async def revoke_session_endpoint(
+    session_id: str,
+    user: UserContext = Depends(get_current_user),
+):
+    """Revoke a specific active session."""
+    revoked = database.revoke_user_session(user.user_id, session_id)
+    if not revoked:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or already revoked.",
+        )
+    return {"success": True, "message": "Session revoked."}
+
+
+@app.post("/api/security/sessions/revoke-others", tags=["Security Dashboard"])
+async def revoke_other_sessions_endpoint(
+    payload: Dict[str, Any] = {},
+    user: UserContext = Depends(get_current_user),
+):
+    """Revoke all sessions for this user except the current active session."""
+    current_session_id = payload.get("currentSessionId", "")
+    revoked_count = database.revoke_all_other_sessions(user.user_id, current_session_id)
+    return {
+        "success": True,
+        "revokedCount": revoked_count,
+        "message": f"Revoked {revoked_count} other active session(s).",
+    }
+
+
+@app.get("/api/security/activity", tags=["Security Dashboard"])
+async def get_activity_endpoint(
+    limit: int = Query(50, ge=1, le=100),
+    user: UserContext = Depends(get_current_user),
+):
+    """Retrieve real security and login audit history for the authenticated user."""
+    events = database.get_user_audit_events(user.user_id, limit=limit)
+    return {"activity": events}
+
+
+@app.get("/api/security/preferences", tags=["Security Dashboard"])
+async def get_security_preferences_endpoint(user: UserContext = Depends(get_current_user)):
+    """Retrieve security notification preferences for the user."""
+    prefs = database.get_security_preferences(user.user_id)
+    return {"preferences": prefs}
+
+
+@app.post("/api/security/preferences", tags=["Security Dashboard"])
+async def update_security_preferences_endpoint(
+    payload: Dict[str, bool],
+    user: UserContext = Depends(get_current_user),
+):
+    """Update security notification preferences for the user."""
+    updated = database.update_security_preferences(user.user_id, payload)
+    return {"success": True, "preferences": updated}
 
 
 # ==============================================================================

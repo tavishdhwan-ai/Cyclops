@@ -8,6 +8,13 @@ import { normalizePhoneNumber } from '../lib/phoneUtils';
 
 export interface UserProfile {
   displayName: string;
+  fullName?: string;
+  username?: string;
+  country?: string;
+  profilePictureUrl?: string;
+  dateOfBirth?: string;
+  preferredLanguage?: string;
+  timeZone?: string;
   goal: 'personal' | 'family' | 'learning' | '';
   concerns: string[];
   experience: 'beginner' | 'intermediate' | 'advanced' | '';
@@ -20,8 +27,11 @@ export interface AuthUser {
   email: string;
   phoneNumber?: string;
   displayName?: string;
+  fullName?: string;
+  username?: string;
   avatarUrl?: string;
   securityTier?: number;
+  onboardingCompleted?: boolean;
 }
 
 interface AuthContextType {
@@ -29,6 +39,7 @@ interface AuthContextType {
   profile: UserProfile;
   isLoading: boolean;
   isConfigured: boolean;
+  sessionToken: string | null;
   startSentinelAuth: (
     email: string,
     phoneNumber: string
@@ -38,14 +49,22 @@ interface AuthContextType {
   ) => Promise<{ success: boolean; error?: string }>;
   completeSession: (
     transactionId: string
-  ) => Promise<{ success: boolean; user?: AuthUser; error?: string }>;
+  ) => Promise<{ success: boolean; user?: AuthUser; onboardingCompleted?: boolean; error?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
   deleteAccount: () => Promise<{ success: boolean; error?: string }>;
+  refreshProfile: () => Promise<void>;
 }
 
 const defaultProfile: UserProfile = {
   displayName: '',
+  fullName: '',
+  username: '',
+  country: '',
+  profilePictureUrl: '',
+  dateOfBirth: '',
+  preferredLanguage: 'en',
+  timeZone: 'UTC',
   goal: '',
   concerns: [],
   experience: '',
@@ -57,10 +76,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const LOCAL_STORAGE_PROFILE_KEY = 'sentinel_user_profile';
 const LOCAL_STORAGE_USER_KEY = 'sentinel_auth_user';
+const LOCAL_STORAGE_TOKEN_KEY = 'sentinel_session_token';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
   const configured = isSupabaseConfigured();
+
+  const [sessionToken, setSessionToken] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY);
+      } catch {}
+    }
+    return null;
+  });
 
   const [user, setUser] = useState<AuthUser | null>(() => {
     if (typeof window !== 'undefined') {
@@ -246,7 +275,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Step 3: Complete Computer Session (revalidates both gates on server)
   const completeSession = useCallback(
-    async (transactionId: string): Promise<{ success: boolean; user?: AuthUser; error?: string }> => {
+    async (
+      transactionId: string
+    ): Promise<{ success: boolean; user?: AuthUser; onboardingCompleted?: boolean; error?: string }> => {
       try {
         const res = await fetch('/api/auth/complete', {
           method: 'POST',
@@ -268,12 +299,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const data = await res.json();
+        const token = data.sessionToken;
+        if (token) {
+          setSessionToken(token);
+          try {
+            localStorage.setItem(LOCAL_STORAGE_TOKEN_KEY, token);
+          } catch {}
+        }
+
+        const onboardingCompleted = Boolean(
+          data.onboardingCompleted ?? data.user?.onboardingCompleted ?? false
+        );
+
         const authUser: AuthUser = {
           id: data.user.id,
           email: data.user.email,
           phoneNumber: data.user.phoneNumber,
           displayName: data.user.displayName,
+          fullName: data.user.fullName,
+          username: data.user.username,
+          avatarUrl: data.user.avatarUrl,
           securityTier: data.user.securityTier || 2,
+          onboardingCompleted,
         };
 
         setUser(authUser);
@@ -281,7 +328,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(authUser));
         } catch {}
 
-        return { success: true, user: authUser };
+        // Fetch fresh profile from backend
+        try {
+          const profHeaders: Record<string, string> = {};
+          if (token) profHeaders['Authorization'] = `Bearer ${token}`;
+          const profRes = await fetch('/api/user/profile', { headers: profHeaders });
+          if (profRes.ok) {
+            const profData = await profRes.json();
+            const fullProfile: UserProfile = {
+              displayName: profData.displayName || authUser.displayName || '',
+              fullName: profData.fullName || '',
+              username: profData.username || '',
+              country: profData.country || '',
+              profilePictureUrl: profData.profilePictureUrl || authUser.avatarUrl || '',
+              dateOfBirth: profData.dateOfBirth || '',
+              preferredLanguage: profData.preferredLanguage || 'en',
+              timeZone: profData.timeZone || 'UTC',
+              goal: profData.goal || '',
+              concerns: profData.concerns || [],
+              experience: profData.experience || '',
+              onboardingCompleted: Boolean(profData.onboardingCompleted ?? onboardingCompleted),
+              securityTier: 2,
+            };
+            setProfile(fullProfile);
+            try {
+              localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(fullProfile));
+            } catch {}
+          }
+        } catch (e) {
+          console.warn('Could not load profile from backend:', e);
+        }
+
+        return { success: true, user: authUser, onboardingCompleted };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to finalize authenticated session.';
         return { success: false, error: msg };
@@ -289,6 +367,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     },
     []
   );
+
+  // Refresh profile from backend
+  const refreshProfile = useCallback(async () => {
+    try {
+      const token =
+        sessionToken ||
+        (typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY) : null);
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch('/api/user/profile', { headers });
+      if (res.ok) {
+        const profData = await res.json();
+        const fullProfile: UserProfile = {
+          displayName: profData.displayName || '',
+          fullName: profData.fullName || '',
+          username: profData.username || '',
+          country: profData.country || '',
+          profilePictureUrl: profData.profilePictureUrl || '',
+          dateOfBirth: profData.dateOfBirth || '',
+          preferredLanguage: profData.preferredLanguage || 'en',
+          timeZone: profData.timeZone || 'UTC',
+          goal: profData.goal || '',
+          concerns: profData.concerns || [],
+          experience: profData.experience || '',
+          onboardingCompleted: Boolean(profData.onboardingCompleted),
+          securityTier: 2,
+        };
+        setProfile(fullProfile);
+        try {
+          localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(fullProfile));
+        } catch {}
+      }
+    } catch {}
+  }, [sessionToken]);
 
   // Update profile preferences
   const updateProfile = useCallback(
@@ -315,16 +429,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        await fetch('http://127.0.0.1:8000/api/user/profile', {
+        const token =
+          sessionToken ||
+          (typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY) : null);
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch('/api/user/profile', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ userId: user?.id, ...updated }),
         });
-      } catch {}
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.detail || errData.message || 'Failed to save profile changes.';
+          return { success: false, error: errMsg };
+        }
+        const resData = await res.json();
+        const savedProfile = resData.profile || updated;
+        const finalProfile: UserProfile = { ...updated, ...savedProfile };
+        setProfile(finalProfile);
+        try {
+          localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(finalProfile));
+        } catch {}
+
+        if (user) {
+          const updatedUser: AuthUser = {
+            ...user,
+            displayName: finalProfile.displayName || user.displayName,
+            avatarUrl: finalProfile.profilePictureUrl || user.avatarUrl,
+            fullName: finalProfile.fullName || user.fullName,
+            username: finalProfile.username || user.username,
+            onboardingCompleted: finalProfile.onboardingCompleted,
+          };
+          setUser(updatedUser);
+          try {
+            localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(updatedUser));
+          } catch {}
+        }
+      } catch (e) {
+        console.warn('Could not save profile to backend:', e);
+      }
 
       return { success: true };
     },
-    [profile, configured, user]
+    [profile, configured, user, sessionToken]
   );
 
   // Sign out cleanly
@@ -347,10 +497,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
       localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
+      localStorage.removeItem(LOCAL_STORAGE_TOKEN_KEY);
       // Remove sentinel_session cookie
       document.cookie = 'sentinel_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
     } catch {}
 
+    setSessionToken(null);
     setUser(null);
     setProfile(defaultProfile);
     router.push('/login');
@@ -361,9 +513,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return { success: false, error: 'No active session' };
 
     try {
-      await fetch('http://127.0.0.1:8000/api/user/account', {
+      const token =
+        sessionToken ||
+        (typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY) : null);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      await fetch('/api/user/account', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ userId: user.id }),
       });
     } catch (e) {
@@ -372,7 +531,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     await signOut();
     return { success: true };
-  }, [user, signOut]);
+  }, [user, signOut, sessionToken]);
 
   return (
     <AuthContext.Provider
@@ -381,12 +540,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile,
         isLoading,
         isConfigured: configured,
+        sessionToken,
         startSentinelAuth,
         confirmEmailGate,
         completeSession,
         signOut,
         updateProfile,
         deleteAccount,
+        refreshProfile,
       }}
     >
       {children}

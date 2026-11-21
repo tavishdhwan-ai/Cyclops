@@ -38,6 +38,8 @@ from app.database import (
     get_device_by_credential_id,
     save_verified_passkey_device,
     update_device_sign_count,
+    get_user_profile_by_email,
+    get_user_profile_by_user_id,
 )
 import phonenumbers
 from phonenumbers import NumberParseException
@@ -282,7 +284,13 @@ async def confirm_email_gate(
 
         # Authoritative Gate 1 Verification
         tx["emailVerified"] = True
-        tx["userId"] = user_id or f"usr_{secrets.token_hex(8)}"
+        if not user_id:
+            existing_user = get_user_profile_by_email(tx["email"])
+            if existing_user and existing_user.get("userId"):
+                user_id = existing_user["userId"]
+            else:
+                user_id = f"usr_{secrets.token_hex(8)}"
+        tx["userId"] = user_id
         tx["state"] = STATE_EMAIL_VERIFIED
 
         # Generate single-use mobile challenge
@@ -768,6 +776,12 @@ def finalize_computer_session(
         user_agent=user_agent,
     )
 
+    # Look up user profile to determine display_name, full_name, onboarding_completed
+    user_prof = get_user_profile_by_user_id(user_id) or {}
+    display_name = user_prof.get("displayName") or user_prof.get("fullName") or email.split("@")[0]
+    onboarding_completed = bool(user_prof.get("onboardingCompleted", False))
+    avatar_url = user_prof.get("profilePictureUrl") or None
+
     return {
         "success": True,
         "sessionToken": token,
@@ -775,9 +789,12 @@ def finalize_computer_session(
             "id": user_id,
             "email": email,
             "phoneNumber": phone,
-            "displayName": email.split("@")[0],
+            "displayName": display_name,
+            "avatarUrl": avatar_url,
             "securityTier": 2,
+            "onboardingCompleted": onboarding_completed,
         },
+        "onboardingCompleted": onboarding_completed,
     }
 
 

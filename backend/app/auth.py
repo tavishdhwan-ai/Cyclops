@@ -3,11 +3,14 @@ Authentication & Authorization Dependency for Cyclops Backend.
 Validates Supabase JWTs and enforces user identity and data isolation server-side.
 """
 import os
+import re
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastapi import Header, HTTPException, status
 from pydantic import BaseModel, Field
 import jwt
+
+from app import database
 
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
@@ -27,8 +30,15 @@ class UserContext(BaseModel):
 class UserProfileUpdate(BaseModel):
     userId: Optional[str] = None
     displayName: Optional[str] = Field(None, max_length=50)
+    fullName: Optional[str] = Field(None, max_length=100)
+    username: Optional[str] = Field(None, max_length=30)
+    country: Optional[str] = Field(None, max_length=100)
+    profilePictureUrl: Optional[str] = None
+    dateOfBirth: Optional[str] = None
+    preferredLanguage: Optional[str] = Field(None, max_length=20)
+    timeZone: Optional[str] = Field(None, max_length=50)
     goal: Optional[str] = None
-    concerns: Optional[list[str]] = None
+    concerns: Optional[List[str]] = None
     experience: Optional[str] = None
     onboardingCompleted: Optional[bool] = None
 
@@ -145,32 +155,67 @@ async def get_current_user(
 
 
 def get_user_profile(user_id: str) -> Dict[str, Any]:
-    """Retrieve profile data isolated to the given user."""
-    return _USER_PROFILES.get(
-        user_id,
-        {
-            "userId": user_id,
-            "displayName": "",
-            "goal": "",
-            "concerns": [],
-            "experience": "",
-            "onboardingCompleted": False,
-        },
-    )
+    """Retrieve profile data isolated to the given user, backed by SQLite with in-memory caching."""
+    db_profile = database.get_user_profile_by_user_id(user_id)
+    if db_profile:
+        _USER_PROFILES[user_id] = db_profile
+        return db_profile
+
+    cached = _USER_PROFILES.get(user_id)
+    if cached:
+        return cached
+
+    return {
+        "userId": user_id,
+        "displayName": "",
+        "fullName": "",
+        "username": "",
+        "country": "",
+        "profilePictureUrl": "",
+        "dateOfBirth": "",
+        "preferredLanguage": "en",
+        "timeZone": "UTC",
+        "goal": "",
+        "concerns": [],
+        "experience": "",
+        "onboardingCompleted": False,
+    }
 
 
 def save_user_profile(user_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Update profile data with strict user isolation."""
-    current = get_user_profile(user_id)
-    current.update({k: v for k, v in profile_data.items() if v is not None})
-    current["userId"] = user_id
-    _USER_PROFILES[user_id] = current
-    return current
+    """Update profile data with strict user isolation, validating username uniqueness if changed."""
+    # Check username if being updated
+    new_username = profile_data.get("username")
+    if new_username:
+        clean_user = new_username.strip().lower()
+        if not re.match(r"^[a-zA-Z0-9_]{3,30}$", clean_user):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username must be between 3 and 30 characters and contain only letters, numbers, and underscores.",
+            )
+        if not database.check_username_available(clean_user, exclude_user_id=user_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"The username '{new_username}' is already taken. Please choose another.",
+            )
+        profile_data["username"] = clean_user
+
+    saved = database.save_or_update_user_profile(user_id, profile_data)
+    _USER_PROFILES[user_id] = saved
+    return saved
 
 
 def delete_user_account(user_id: str) -> bool:
     """Purge all user-specific data upon account deletion."""
+    with database._db_lock:
+        with database.get_db_connection() as conn:
+            conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM registered_devices WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM auth_challenges WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM auth_audit_events WHERE user_id = ?", (user_id,))
+
     if user_id in _USER_PROFILES:
         del _USER_PROFILES[user_id]
-        return True
-    return False
+    return True

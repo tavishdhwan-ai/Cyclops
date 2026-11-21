@@ -27,15 +27,23 @@ import {
 import { InternationalPhoneInput } from '../../components/ui/InternationalPhoneInput';
 
 
-function LoginFormContent() {
+export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'signup' } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextDestination = sanitizeRedirectPath(searchParams.get('next') || '/dashboard');
   const urlError = searchParams.get('error');
   const urlStep = searchParams.get('step');
   const urlTx = searchParams.get('tx');
+  const initialMode =
+    defaultMode ||
+    (searchParams.get('mode') === 'signup' || searchParams.get('signup') === 'true'
+      ? 'signup'
+      : 'signin');
 
   const { user, startSentinelAuth, completeSession } = useAuth();
+
+  // Mode: Sign In vs Sign Up
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>(initialMode);
 
   // Form Fields
   const [email, setEmail] = useState('');
@@ -141,7 +149,11 @@ function LoginFormContent() {
   // If already authenticated, redirect
   useEffect(() => {
     if (user) {
-      router.push(nextDestination);
+      if (user.onboardingCompleted === false) {
+        router.push('/onboarding');
+      } else {
+        router.push(nextDestination);
+      }
     }
   }, [user, router, nextDestination]);
 
@@ -223,7 +235,11 @@ function LoginFormContent() {
         setFlowStep('completing');
         const sessionRes = await completeSession(activeTx);
         if (sessionRes.success) {
-          router.push(nextDestination);
+          if (sessionRes.onboardingCompleted === false) {
+            router.push('/onboarding');
+          } else {
+            router.push(nextDestination);
+          }
         } else {
           setGeneralError(sessionRes.error || 'Could not finalize session authorization.');
         }
@@ -310,10 +326,12 @@ function LoginFormContent() {
             <Shield className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            Sentinel AI Two-Channel Login
+            {authMode === 'signup' ? 'Create your Sentinel AI Account' : 'Sign in to Sentinel AI'}
           </h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Zero-trust passwordless email & WhatsApp biometric device verification.
+            {authMode === 'signup'
+              ? 'Register a passwordless biometric identity with hardware-backed passkeys.'
+              : 'Two-channel passwordless authentication via email and mobile passkey.'}
           </p>
         </div>
 
@@ -331,89 +349,146 @@ function LoginFormContent() {
         {/* Main Card */}
         <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-8 shadow-sm space-y-6">
           {flowStep === 'input' && (
-            <form onSubmit={handleSubmit} noValidate className="space-y-4">
-              {/* Gate 1: Email Address */}
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="email-input"
-                  className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
+            <div className="space-y-5">
+              {/* Sign In vs Sign Up Tabs */}
+              <div className="grid grid-cols-2 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('signin')}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+                    authMode === 'signin'
+                      ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                  }`}
                 >
-                  Work or Personal Email
-                </label>
-                <div className="relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                    <Mail className="h-4 w-4 text-zinc-400" />
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('signup')}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+                    authMode === 'signup'
+                      ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                  }`}
+                >
+                  Create Account
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmit} noValidate className="space-y-4">
+                {/* Gate 1: Email Address */}
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="email-input"
+                    className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
+                  >
+                    Work or Personal Email
+                  </label>
+                  <div className="relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                      <Mail className="h-4 w-4 text-zinc-400" />
+                    </div>
+                    <input
+                      id="email-input"
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (emailError) setEmailError(null);
+                      }}
+                      placeholder="you@company.com"
+                      disabled={isLoading}
+                      className={`block w-full rounded-lg border pl-9 pr-3 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 transition-colors ${
+                        emailError
+                          ? 'border-red-400 focus:border-red-500 focus:ring-red-200 dark:focus:ring-red-900/40 bg-red-50/20'
+                          : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:border-zinc-900 dark:focus:border-zinc-100 focus:ring-zinc-200 dark:focus:ring-zinc-800'
+                      }`}
+                    />
                   </div>
-                  <input
-                    id="email-input"
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (emailError) setEmailError(null);
-                    }}
-                    placeholder="you@company.com"
-                    disabled={isLoading}
-                    className={`block w-full rounded-lg border pl-9 pr-3 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-hidden focus:ring-2 transition-colors ${
-                      emailError
-                        ? 'border-red-400 focus:border-red-500 focus:ring-red-200 dark:focus:ring-red-900/40 bg-red-50/20'
-                        : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 focus:border-zinc-900 dark:focus:border-zinc-100 focus:ring-zinc-200 dark:focus:ring-zinc-800'
-                    }`}
-                  />
+                  {emailError && (
+                    <p className="text-[11px] font-medium text-red-600 dark:text-red-400" role="alert">
+                      {emailError}
+                    </p>
+                  )}
                 </div>
-                {emailError && (
-                  <p className="text-[11px] font-medium text-red-600 dark:text-red-400" role="alert">
-                    {emailError}
+
+                {/* Gate 2: Mobile Number for WhatsApp with Worldwide Country Selector */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label
+                      htmlFor="phone-input"
+                      className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
+                    >
+                      Mobile Phone Number (WhatsApp)
+                    </label>
+                    <span className="text-[10px] text-zinc-400">All Countries Supported</span>
+                  </div>
+                  <InternationalPhoneInput
+                    id="phone-input"
+                    value={phone}
+                    onChange={(normalizedVal, isValid, err) => {
+                      setPhone(normalizedVal);
+                      if (phoneError) setPhoneError(err || null);
+                    }}
+                    disabled={isLoading}
+                    error={phoneError}
+                  />
+                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                    {authMode === 'signup'
+                      ? 'We will send a one-time passkey enrollment link to your WhatsApp upon email verification.'
+                      : 'We will send a one-time biometric verification link to your WhatsApp upon email verification.'}
+                  </p>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-900 dark:bg-white px-4 py-2.5 text-xs font-semibold text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors shadow-xs cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-zinc-400"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="h-3.5 w-3.5 border-2 border-white dark:border-zinc-900 border-t-transparent rounded-full animate-spin" />
+                      <span>{authMode === 'signup' ? 'Initiating Registration...' : 'Initiating Authentication...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{authMode === 'signup' ? 'Create Account & Verify Identity' : 'Sign In with Two-Channel Verification'}</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* Bottom Mode Switcher */}
+              <div className="pt-2 text-center border-t border-zinc-100 dark:border-zinc-800">
+                {authMode === 'signup' ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Already have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode('signin')}
+                      className="font-semibold text-zinc-900 dark:text-zinc-100 underline hover:opacity-80 cursor-pointer"
+                    >
+                      Sign In
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    New to Sentinel AI?{' '}
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode('signup')}
+                      className="font-semibold text-zinc-900 dark:text-zinc-100 underline hover:opacity-80 cursor-pointer"
+                    >
+                      Create an account
+                    </button>
                   </p>
                 )}
               </div>
-
-              {/* Gate 2: Mobile Number for WhatsApp with Worldwide Country Selector */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="phone-input"
-                    className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200"
-                  >
-                    Mobile Phone Number (WhatsApp)
-                  </label>
-                  <span className="text-[10px] text-zinc-400">All Countries Supported</span>
-                </div>
-                <InternationalPhoneInput
-                  id="phone-input"
-                  value={phone}
-                  onChange={(normalizedVal, isValid, err) => {
-                    setPhone(normalizedVal);
-                    if (phoneError) setPhoneError(err || null);
-                  }}
-                  disabled={isLoading}
-                  error={phoneError}
-                />
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
-                  Select your country code and enter your mobile number. We will send a one-time biometric verification link to your WhatsApp upon email verification.
-                </p>
-              </div>
-
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-zinc-900 dark:bg-white px-4 py-2.5 text-xs font-semibold text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors shadow-xs cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-zinc-400"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="h-3.5 w-3.5 border-2 border-white dark:border-zinc-900 border-t-transparent rounded-full animate-spin" />
-                    <span>Initiating Two-Channel Authentication...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Begin Two-Channel Verification</span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </>
-                )}
-              </button>
-            </form>
+            </div>
           )}
 
           {flowStep === 'email_sent' && (

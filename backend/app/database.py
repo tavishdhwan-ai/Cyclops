@@ -146,6 +146,37 @@ def init_db():
             except Exception:
                 pass
 
+            # Safe additive migrations for user_profiles extended fields
+            for col, col_def in [
+                ("full_name", "TEXT DEFAULT ''"),
+                ("username", "TEXT DEFAULT ''"),
+                ("country", "TEXT DEFAULT ''"),
+                ("profile_picture_url", "TEXT DEFAULT ''"),
+                ("date_of_birth", "TEXT DEFAULT ''"),
+                ("preferred_language", "TEXT DEFAULT 'en'"),
+                ("time_zone", "TEXT DEFAULT 'UTC'"),
+                ("notify_new_device", "INTEGER DEFAULT 1"),
+                ("notify_new_passkey", "INTEGER DEFAULT 1"),
+                ("notify_failed_login", "INTEGER DEFAULT 1"),
+                ("notify_security_changes", "INTEGER DEFAULT 1"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {col} {col_def};")
+                except Exception:
+                    pass
+
+            try:
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_username_clean ON user_profiles(username) WHERE username IS NOT NULL AND username != '';"
+                )
+            except Exception:
+                pass
+
+            try:
+                conn.execute("ALTER TABLE registered_devices ADD COLUMN revoked_at REAL;")
+            except Exception:
+                pass
+
 
 # Initialize database tables immediately on import
 init_db()
@@ -569,5 +600,433 @@ def update_device_sign_count(credential_id: str, new_sign_count: int) -> None:
                 """,
                 (new_sign_count, now, credential_id),
             )
+
+
+# ==============================================================================
+# Extended User Profile & Security Management Persistence
+# ==============================================================================
+
+def get_user_profile_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves full user profile by user_id from SQLite."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+            r = cur.fetchone()
+            if not r:
+                return None
+            keys = r.keys()
+            concerns_raw = r["concerns"] if "concerns" in keys else "[]"
+            try:
+                concerns = json.loads(concerns_raw) if isinstance(concerns_raw, str) else []
+            except Exception:
+                concerns = []
+
+            return {
+                "userId": r["user_id"],
+                "email": r["email"],
+                "phoneNumber": r["phone_number"],
+                "phoneVerified": bool(r["phone_verified"]),
+                "displayName": r["display_name"] or "",
+                "fullName": r["full_name"] if "full_name" in keys and r["full_name"] else "",
+                "username": r["username"] if "username" in keys and r["username"] else "",
+                "country": r["country"] if "country" in keys and r["country"] else "",
+                "profilePictureUrl": r["profile_picture_url"] if "profile_picture_url" in keys and r["profile_picture_url"] else "",
+                "dateOfBirth": r["date_of_birth"] if "date_of_birth" in keys and r["date_of_birth"] else "",
+                "preferredLanguage": r["preferred_language"] if "preferred_language" in keys and r["preferred_language"] else "en",
+                "timeZone": r["time_zone"] if "time_zone" in keys and r["time_zone"] else "UTC",
+                "goal": r["goal"] or "",
+                "concerns": concerns,
+                "experience": r["experience"] or "",
+                "onboardingCompleted": bool(r["onboarding_completed"]),
+                "securityTier": r["security_tier"] if "security_tier" in keys else 1,
+                "accountStatus": r["account_status"] if "account_status" in keys else "active",
+                "createdAt": r["created_at"],
+                "updatedAt": r["updated_at"],
+            }
+
+
+def get_user_profile_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """Retrieves user profile by normalized email address."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute("SELECT user_id FROM user_profiles WHERE LOWER(email) = LOWER(?)", (email.strip(),))
+            r = cur.fetchone()
+            if not r:
+                return None
+            return get_user_profile_by_user_id(r["user_id"])
+
+
+def check_username_available(username: str, exclude_user_id: Optional[str] = None) -> bool:
+    """Checks if a username is valid and available (unique across all accounts)."""
+    clean_username = username.strip().lower()
+    if not clean_username or len(clean_username) < 3 or len(clean_username) > 30:
+        return False
+    # Only allow alphanumeric and underscore
+    import re
+    if not re.match(r"^[a-zA-Z0-9_]+$", clean_username):
+        return False
+
+    with _db_lock:
+        with get_db_connection() as conn:
+            if exclude_user_id:
+                cur = conn.execute(
+                    "SELECT id FROM user_profiles WHERE LOWER(username) = ? AND user_id != ?",
+                    (clean_username, exclude_user_id),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT id FROM user_profiles WHERE LOWER(username) = ?",
+                    (clean_username,),
+                )
+            return cur.fetchone() is None
+
+
+def save_or_update_user_profile(user_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Upserts full user profile into user_profiles with validation and atomic SQLite commit."""
+    now = time.time()
+    existing = get_user_profile_by_user_id(user_id)
+
+    email = profile_data.get("email") or (existing.get("email") if existing else "")
+    phone = profile_data.get("phoneNumber") or (existing.get("phoneNumber") if existing else "")
+    display_name = profile_data.get("displayName") or (existing.get("displayName") if existing else "")
+    full_name = profile_data.get("fullName") or (existing.get("fullName") if existing else "")
+    username = profile_data.get("username") or (existing.get("username") if existing else "")
+    country = profile_data.get("country") or (existing.get("country") if existing else "")
+    profile_picture_url = profile_data.get("profilePictureUrl") or (existing.get("profilePictureUrl") if existing else "")
+    date_of_birth = profile_data.get("dateOfBirth") or (existing.get("dateOfBirth") if existing else "")
+    preferred_language = profile_data.get("preferredLanguage") or (existing.get("preferredLanguage") if existing else "en")
+    time_zone = profile_data.get("timeZone") or (existing.get("timeZone") if existing else "UTC")
+    goal = profile_data.get("goal") or (existing.get("goal") if existing else "")
+    experience = profile_data.get("experience") or (existing.get("experience") if existing else "")
+
+    concerns = profile_data.get("concerns") if "concerns" in profile_data else (existing.get("concerns") if existing else [])
+    concerns_json = json.dumps(concerns) if isinstance(concerns, list) else "[]"
+
+    onboarding_completed = 1 if (profile_data.get("onboardingCompleted", False) or (existing and existing.get("onboardingCompleted"))) else 0
+
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_profiles (
+                    id, user_id, email, phone_number, display_name, full_name, username,
+                    country, profile_picture_url, date_of_birth, preferred_language, time_zone,
+                    goal, concerns, experience, onboarding_completed, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    email = COALESCE(NULLIF(excluded.email, ''), user_profiles.email),
+                    phone_number = COALESCE(NULLIF(excluded.phone_number, ''), user_profiles.phone_number),
+                    display_name = COALESCE(NULLIF(excluded.display_name, ''), user_profiles.display_name),
+                    full_name = COALESCE(NULLIF(excluded.full_name, ''), user_profiles.full_name),
+                    username = COALESCE(NULLIF(excluded.username, ''), user_profiles.username),
+                    country = COALESCE(NULLIF(excluded.country, ''), user_profiles.country),
+                    profile_picture_url = COALESCE(NULLIF(excluded.profile_picture_url, ''), user_profiles.profile_picture_url),
+                    date_of_birth = COALESCE(NULLIF(excluded.date_of_birth, ''), user_profiles.date_of_birth),
+                    preferred_language = COALESCE(NULLIF(excluded.preferred_language, ''), user_profiles.preferred_language),
+                    time_zone = COALESCE(NULLIF(excluded.time_zone, ''), user_profiles.time_zone),
+                    goal = COALESCE(NULLIF(excluded.goal, ''), user_profiles.goal),
+                    concerns = excluded.concerns,
+                    experience = COALESCE(NULLIF(excluded.experience, ''), user_profiles.experience),
+                    onboarding_completed = MAX(user_profiles.onboarding_completed, excluded.onboarding_completed),
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    f"prof_{secrets.token_hex(8)}",
+                    user_id,
+                    email,
+                    phone,
+                    display_name,
+                    full_name,
+                    username,
+                    country,
+                    profile_picture_url,
+                    date_of_birth,
+                    preferred_language,
+                    time_zone,
+                    goal,
+                    concerns_json,
+                    experience,
+                    onboarding_completed,
+                    now,
+                    now,
+                ),
+            )
+
+    return get_user_profile_by_user_id(user_id) or {}
+
+
+def get_user_registered_passkeys(user_id: str) -> List[Dict[str, Any]]:
+    """
+    Returns registered passkeys for security dashboard.
+    Redacts private/public key raw cryptographic secrets.
+    """
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT id, device_id, device_name, platform, credential_id, sign_count,
+                       is_active, last_used_at, created_at, revoked_at
+                FROM registered_devices
+                WHERE user_id = ? AND credential_id IS NOT NULL
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "deviceId": r["device_id"],
+                    "deviceName": r["device_name"] or "Platform Passkey",
+                    "platform": r["platform"] or "Mobile",
+                    "credentialIdPreview": r["credential_id"][:12] + "..." if r["credential_id"] else "",
+                    "credentialId": r["credential_id"],
+                    "signCount": r["sign_count"],
+                    "isActive": bool(r["is_active"]),
+                    "lastUsedAt": r["last_used_at"],
+                    "createdAt": r["created_at"],
+                    "revokedAt": r["revoked_at"],
+                }
+                for r in rows
+            ]
+
+
+def revoke_passkey_credential(user_id: str, credential_id: str) -> bool:
+    """Revokes a specific WebAuthn passkey credential for a user."""
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE registered_devices
+                SET is_active = 0, revoked_at = ?
+                WHERE user_id = ? AND credential_id = ?
+                """,
+                (now, user_id, credential_id),
+            )
+            return cur.rowcount > 0
+
+
+def get_user_trusted_devices(user_id: str) -> List[Dict[str, Any]]:
+    """Returns trusted devices list for user."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT id, device_id, device_name, device_type, platform,
+                       is_active, last_used_at, created_at, revoked_at,
+                       credential_id
+                FROM registered_devices
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            # Also get push subscriptions count for this device
+            push_cur = conn.execute("SELECT device_id FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            push_device_ids = {p["device_id"] for p in push_cur.fetchall() if p["device_id"]}
+
+            return [
+                {
+                    "id": r["id"],
+                    "deviceId": r["device_id"],
+                    "deviceName": r["device_name"] or "Mobile Device",
+                    "deviceType": r["device_type"] or "mobile",
+                    "platform": r["platform"] or "Mobile",
+                    "hasPasskey": bool(r["credential_id"]),
+                    "hasWebPush": r["device_id"] in push_device_ids,
+                    "isActive": bool(r["is_active"]),
+                    "lastUsedAt": r["last_used_at"],
+                    "createdAt": r["created_at"],
+                    "revokedAt": r["revoked_at"],
+                }
+                for r in rows
+            ]
+
+
+def revoke_trusted_device(user_id: str, device_id: str) -> bool:
+    """Revokes a trusted device and its associated passkeys."""
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE registered_devices
+                SET is_active = 0, revoked_at = ?
+                WHERE user_id = ? AND device_id = ?
+                """,
+                (now, user_id, device_id),
+            )
+            # Also delete push subscription for this device if any
+            conn.execute(
+                "DELETE FROM push_subscriptions WHERE user_id = ? AND device_id = ?",
+                (user_id, device_id),
+            )
+            return cur.rowcount > 0
+
+
+def get_user_audit_events(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Retrieves real audit events for the authenticated user from SQLite."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT id, transaction_id, event_type, status, details, ip_address, user_agent, created_at
+                FROM auth_audit_events
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            )
+            rows = cur.fetchall()
+            events = []
+            for r in rows:
+                details = {}
+                try:
+                    details = json.loads(r["details"]) if r["details"] else {}
+                except Exception:
+                    pass
+                events.append({
+                    "id": r["id"],
+                    "transactionId": r["transaction_id"],
+                    "eventType": r["event_type"],
+                    "status": r["status"],
+                    "details": details,
+                    "ipAddress": r["ip_address"] or "Direct Connection",
+                    "userAgent": r["user_agent"] or "Secure Browser",
+                    "createdAt": r["created_at"],
+                })
+            return events
+
+
+def get_user_active_sessions(user_id: str) -> List[Dict[str, Any]]:
+    """Retrieves active sessions for the user from auth_sessions."""
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT id, transaction_id, email, user_agent, ip_address,
+                       created_at, last_active_at, expires_at, is_revoked, state
+                FROM auth_sessions
+                WHERE user_id = ? AND is_revoked = 0 AND expires_at > ?
+                ORDER BY last_active_at DESC
+                """,
+                (user_id, now),
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "sessionId": r["transaction_id"],
+                    "transactionId": r["transaction_id"],
+                    "email": r["email"],
+                    "userAgent": r["user_agent"] or "Desktop Web Browser",
+                    "ipAddress": r["ip_address"] or "Active Session",
+                    "createdAt": r["created_at"],
+                    "lastActiveAt": r["last_active_at"],
+                    "expiresAt": r["expires_at"],
+                    "state": r["state"],
+                }
+                for r in rows
+            ]
+
+
+def revoke_user_session(user_id: str, session_id: str) -> bool:
+    """Revokes a specific session for a user."""
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE auth_sessions
+                SET is_revoked = 1, revoked_at = ?, state = 'REVOKED'
+                WHERE user_id = ? AND (transaction_id = ? OR id = ?)
+                """,
+                (now, user_id, session_id, session_id),
+            )
+            return cur.rowcount > 0
+
+
+def revoke_all_other_sessions(user_id: str, current_session_id: str) -> int:
+    """Revokes all active sessions for a user except the current session."""
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE auth_sessions
+                SET is_revoked = 1, revoked_at = ?, state = 'REVOKED'
+                WHERE user_id = ? AND transaction_id != ? AND id != ? AND is_revoked = 0
+                """,
+                (now, user_id, current_session_id, current_session_id),
+            )
+            return cur.rowcount
+
+
+def get_security_preferences(user_id: str) -> Dict[str, bool]:
+    """Retrieves security notification preferences for user."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT notify_new_device, notify_new_passkey, notify_failed_login, notify_security_changes
+                FROM user_profiles WHERE user_id = ?
+                """,
+                (user_id,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return {
+                    "notifyNewDevice": True,
+                    "notifyNewPasskey": True,
+                    "notifyFailedLogin": True,
+                    "notifySecurityChanges": True,
+                }
+            keys = r.keys()
+            return {
+                "notifyNewDevice": bool(r["notify_new_device"]) if "notify_new_device" in keys else True,
+                "notifyNewPasskey": bool(r["notify_new_passkey"]) if "notify_new_passkey" in keys else True,
+                "notifyFailedLogin": bool(r["notify_failed_login"]) if "notify_failed_login" in keys else True,
+                "notifySecurityChanges": bool(r["notify_security_changes"]) if "notify_security_changes" in keys else True,
+            }
+
+
+def update_security_preferences(user_id: str, prefs: Dict[str, bool]) -> Dict[str, bool]:
+    """Updates security notification preferences for user, creating profile record if absent."""
+    now = time.time()
+    current = get_security_preferences(user_id)
+    # Merge existing preferences with provided updates
+    merged = {**current, **prefs}
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_profiles (
+                    id, user_id, email, phone_number, display_name, full_name, username,
+                    country, profile_picture_url, date_of_birth, preferred_language, time_zone,
+                    goal, concerns, experience, onboarding_completed, created_at, updated_at,
+                    notify_new_device, notify_new_passkey, notify_failed_login, notify_security_changes
+                ) VALUES (?, ?, '', '', '', '', '', '', '', '', 'en', 'UTC', '', '[]', '', 0, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    notify_new_device = excluded.notify_new_device,
+                    notify_new_passkey = excluded.notify_new_passkey,
+                    notify_failed_login = excluded.notify_failed_login,
+                    notify_security_changes = excluded.notify_security_changes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    f"prof_{secrets.token_hex(8)}",
+                    user_id,
+                    now,
+                    now,
+                    1 if merged.get("notifyNewDevice", True) else 0,
+                    1 if merged.get("notifyNewPasskey", True) else 0,
+                    1 if merged.get("notifyFailedLogin", True) else 0,
+                    1 if merged.get("notifySecurityChanges", True) else 0,
+                ),
+            )
+    return get_security_preferences(user_id)
 
 
