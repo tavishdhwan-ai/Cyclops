@@ -136,77 +136,48 @@ def start_push_login_transaction(
     - Protects against account enumeration.
     """
     normalized_phone = normalize_phone_number(raw_phone)
-    rate_key = f"{ip_address or 'anon'}:{normalized_phone}"
-    check_rate_limit(rate_key, max_attempts=5, window_seconds=60.0)
+    # Rate limiting: Enforce sliding-window limits per IP and per Phone to prevent abuse and brute-force
+    ip_key = f"lookup:ip:{ip_address or 'anon'}"
+    phone_key = f"lookup:phone:{normalized_phone}"
+    check_rate_limit(ip_key, max_attempts=5, window_seconds=60.0)
+    check_rate_limit(phone_key, max_attempts=5, window_seconds=60.0)
 
     browser_name, os_name = parse_device_user_agent(user_agent)
-
-    # Account lookup
-    user = database.get_user_by_phone(normalized_phone)
     now = time.time()
     expires_at = now + 120.0  # 2 minute expiry
 
-    # Check eligibility: account exists, has >= 1 active passkey, and has push device
-    has_passkey = False
-    has_push = False
-    if user:
-        passkeys = database.get_active_passkeys_for_user(user["userId"])
-        has_passkey = len(passkeys) > 0
-        push_subs = database.get_push_subscriptions_for_user(user["userId"])
-        has_push = len(push_subs) > 0
+    # Look up the phone number against verified phone numbers associated with registered SentinelAI accounts
+    user = database.get_user_by_phone(normalized_phone)
 
-    # Anti-Enumeration Protection:
-    # If account is missing or ineligible for push login, generate a dummy pending transaction
-    # that safely times out, without revealing to the client that the account is missing.
-    if not user or not has_passkey or not has_push:
-        dummy_tx_id = f"ptx_sim_{secrets.token_hex(12)}"
-        dummy_tok = secrets.token_urlsafe(32)
-        dummy_tok_hash = hashlib.sha256(dummy_tok.encode("utf-8")).hexdigest()
-
-        # Save simulated transaction so status polling gracefully works and times out
-        sim_tx = {
-            "id": f"ptx_{secrets.token_hex(8)}",
-            "transactionId": dummy_tx_id,
-            "userId": "usr_unregistered",
-            "phoneNumber": normalized_phone,
-            "mobileTokenHash": dummy_tok_hash,
-            "state": STATE_PENDING_APPROVAL,
-            "ipAddress": ip_address,
-            "userAgent": user_agent,
-            "browserName": browser_name,
-            "osName": os_name,
-            "createdAt": now,
-            "expiresAt": expires_at,
-        }
-        database.save_push_login_transaction(sim_tx)
-
+    # If no account is associated with the submitted number, do NOT create a login transaction and do NOT send a push notification.
+    if not user:
         database.record_db_audit({
             "id": f"audit_{secrets.token_hex(8)}",
-            "transaction_id": dummy_tx_id,
+            "transaction_id": None,
             "user_id": None,
-            "event_type": "PUSH_LOGIN_SIMULATED",
-            "status": "INFO",
+            "event_type": "ACCOUNT_LOOKUP_NO_ACCOUNT",
+            "status": "NOT_FOUND",
             "details": {
-                "reason": "missing_account_or_push_device",
-                "has_account": bool(user),
-                "has_passkey": has_passkey,
-                "has_push": has_push,
+                "reason": "phone_not_registered",
+                "phone_hash": hashlib.sha256(normalized_phone.encode("utf-8")).hexdigest()[:16],
             },
             "ip_address": ip_address,
             "user_agent": user_agent,
             "created_at": now,
         })
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "title": "No account associated with this number",
+                "message": "We couldn't find a SentinelAI account registered with this phone number. Please check the number or sign up for SentinelAI.",
+            },
+        )
 
-        return {
-            "success": True,
-            "transactionId": dummy_tx_id,
-            "expiresAt": expires_at,
-            "state": STATE_PENDING_APPROVAL,
-            "isConfiguredForPush": False,
-            "message": "A verification request has been dispatched to your registered push device.",
-        }
+    # Check verified passkeys and verified push subscriptions
+    passkeys = database.get_active_passkeys_for_user(user["userId"])
+    push_subs = database.get_push_subscriptions_for_user(user["userId"])
 
-    # Real Account Transaction
+    # Create Real Account Transaction
     tx_id = f"ptx_{secrets.token_hex(16)}"
     mobile_token = f"mtok_{secrets.token_urlsafe(32)}"
     mobile_token_hash = hashlib.sha256(mobile_token.encode("utf-8")).hexdigest()
@@ -230,22 +201,26 @@ def start_push_login_transaction(
     # Format human-readable time
     time_str = time.strftime("%I:%M %p UTC", time.gmtime(now))
 
-    # Dispatch Real Web Push Notification
-    push_payload = {
-        "title": "SentinelAI — Login Request",
-        "body": "Someone is trying to access your SentinelAI account. Is this you?",
-        "data": {
-            "type": "login_approval",
-            "transactionId": tx_id,
-            "url": f"/approve-login?tx={tx_id}&tok={mobile_token}",
-            "browser": browser_name,
-            "device": os_name,
-            "requestTime": time_str,
-            "ipAddress": ip_address or "Current Connection",
-        },
-    }
-
-    push_result = dispatch_push_to_user(user["userId"], push_payload)
+    # Dispatch Real Web Push Notification ONLY if registered push subscriptions exist
+    push_sent = 0
+    push_status = "no_devices"
+    if push_subs:
+        push_payload = {
+            "title": "SentinelAI — Login Request",
+            "body": "Someone is trying to access your SentinelAI account. Is this you?",
+            "data": {
+                "type": "login_approval",
+                "transactionId": tx_id,
+                "url": f"/approve-login?tx={tx_id}&tok={mobile_token}",
+                "browser": browser_name,
+                "device": os_name,
+                "requestTime": time_str,
+                "ipAddress": ip_address or "Current Connection",
+            },
+        }
+        push_result = dispatch_push_to_user(user["userId"], push_payload)
+        push_sent = push_result.get("sent", 0)
+        push_status = push_result.get("status")
 
     database.record_db_audit({
         "id": f"audit_{secrets.token_hex(8)}",
@@ -254,8 +229,9 @@ def start_push_login_transaction(
         "event_type": "PUSH_LOGIN_TRANSACTION_STARTED",
         "status": "SUCCESS",
         "details": {
-            "push_sent": push_result.get("sent", 0),
-            "push_status": push_result.get("status"),
+            "push_sent": push_sent,
+            "push_status": push_status,
+            "has_passkeys": len(passkeys) > 0,
             "browser": browser_name,
             "os": os_name,
         },
@@ -269,10 +245,12 @@ def start_push_login_transaction(
         "transactionId": tx_id,
         "expiresAt": expires_at,
         "state": STATE_PENDING_APPROVAL,
-        "pushSentCount": push_result.get("sent", 0),
-        "isConfiguredForPush": True,
+        "pushSentCount": push_sent,
+        "isConfiguredForPush": bool(push_subs),
         "mobileApprovalUrl": f"/approve-login?tx={tx_id}&tok={mobile_token}",
-        "message": "Push notification sent to your registered device. Please review the request on your phone.",
+        "message": "Push notification sent to your registered device. Please review the request on your phone."
+        if push_subs
+        else "Please open the approval page or scan the QR code on your mobile device to authorize.",
     }
 
 

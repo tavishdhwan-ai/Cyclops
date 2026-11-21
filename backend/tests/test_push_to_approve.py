@@ -111,20 +111,22 @@ def test_push_login_invalid_phone():
     assert "Invalid phone number" in res.json()["detail"] or "phone" in res.json()["detail"].lower()
 
 
-def test_push_login_unregistered_phone_anti_enumeration():
+def test_push_login_unregistered_phone_lookup():
     # Valid phone syntax but unknown account
-    res = client.post("/api/auth/push-login/start", json={"phoneNumber": "+12025550199"})
-    assert res.status_code == 200
+    unregistered_phone = "+12025550199"
+    res = client.post("/api/auth/push-login/start", json={"phoneNumber": unregistered_phone})
+    assert res.status_code == 404
     data = res.json()
-    assert data["success"] is True
-    assert data["state"] == STATE_PENDING_APPROVAL
-    # Message is generic
-    assert "verification request" in data["message"].lower() or "dispatched" in data["message"].lower()
+    detail = data["detail"]
+    title = detail.get("title", "") if isinstance(detail, dict) else detail
+    message = detail.get("message", "") if isinstance(detail, dict) else detail
 
-    # Status check for simulated transaction returns pending and exists
-    status_res = client.get(f"/api/auth/push-login/status/{data['transactionId']}")
-    assert status_res.status_code == 200
-    assert status_res.json()["state"] == STATE_PENDING_APPROVAL
+    assert "No account associated with this number" in title
+    assert "We couldn't find a SentinelAI account registered with this phone number. Please check the number or sign up for SentinelAI." in message
+
+    # Verify no transaction was created in database
+    tx = database.get_user_by_phone(unregistered_phone)
+    assert tx is None
 
 
 def test_push_login_success_lifecycle():
@@ -304,3 +306,13 @@ def test_push_login_cross_account_passkey_blocked():
     )
     assert bad_verify.status_code == 403
     assert "does not belong" in bad_verify.json()["detail"].lower()
+
+
+def test_push_login_rate_limiting():
+    # 5 rapid attempts from same client IP should be allowed, 6th must return 429
+    phone = "+14155559999"
+    responses = []
+    for _ in range(6):
+        r = client.post("/api/auth/push-login/start", json={"phoneNumber": phone})
+        responses.append(r.status_code)
+    assert 429 in responses

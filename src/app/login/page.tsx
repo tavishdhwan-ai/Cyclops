@@ -50,6 +50,10 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
   const [phone, setPhone] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [accountNotFoundError, setAccountNotFoundError] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(() => {
     if (urlError === 'invalid_link' || urlError === 'expired') {
       return 'The sign-in link has expired or has already been used. Please request a new verification link.';
@@ -288,6 +292,7 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
     setEmailError(null);
     setPhoneError(null);
     setGeneralError(null);
+    setAccountNotFoundError(null);
 
     // Pathway 1: Standard Push-To-Approve Sign In (Requires ONLY Phone Number)
     if (authMode === 'signin' && !useEmailFallbackForLogin) {
@@ -307,7 +312,28 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || 'Failed to start Push-To-Approve login.');
+          // If no registered account found for this phone
+          if (res.status === 404) {
+            const detailObj = typeof errData.detail === 'object' && errData.detail !== null ? errData.detail : {};
+            setAccountNotFoundError({
+              title: detailObj.title || 'No account associated with this number',
+              message:
+                detailObj.message ||
+                "We couldn't find a SentinelAI account registered with this phone number. Please check the number or sign up for SentinelAI.",
+            });
+            setIsLoading(false);
+            return;
+          }
+          if (res.status === 429) {
+            setGeneralError('Too many sign-in attempts. Please wait a minute before trying again.');
+            setIsLoading(false);
+            return;
+          }
+          throw new Error(
+            typeof errData.detail === 'string'
+              ? errData.detail
+              : errData.detail?.message || 'Failed to start Push-To-Approve login.'
+          );
         }
 
         const data = await res.json();
@@ -520,6 +546,7 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                     setUseEmailFallbackForLogin(false);
                     setEmailError(null);
                     setPhoneError(null);
+                    setAccountNotFoundError(null);
                   }}
                   className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                     authMode === 'signin'
@@ -535,6 +562,7 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                     setAuthMode('signup');
                     setEmailError(null);
                     setPhoneError(null);
+                    setAccountNotFoundError(null);
                   }}
                   className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                     authMode === 'signup'
@@ -549,6 +577,45 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
               {/* FORM A: PHONE-ONLY PUSH LOGIN (Sign In Mode) */}
               {authMode === 'signin' && !useEmailFallbackForLogin ? (
                 <form onSubmit={handleSubmit} noValidate className="space-y-4">
+                  {accountNotFoundError && (
+                    <div
+                      role="alert"
+                      className="rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50/90 dark:bg-amber-950/40 p-4 text-xs space-y-2.5"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-amber-900 dark:text-amber-200 text-xs">
+                            {accountNotFoundError.title}
+                          </h3>
+                          <p className="text-amber-800/90 dark:text-amber-300/90 text-[11px] leading-relaxed">
+                            {accountNotFoundError.message}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="pt-1 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthMode('signup');
+                            setAccountNotFoundError(null);
+                          }}
+                          className="inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-semibold text-xs hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
+                        >
+                          <span>Sign Up for SentinelAI</span>
+                          <ArrowRight className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAccountNotFoundError(null)}
+                          className="py-1.5 px-2.5 text-xs text-amber-800 dark:text-amber-300 hover:underline cursor-pointer"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label
@@ -565,6 +632,7 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                       onChange={(normalizedVal, isValid, err) => {
                         setPhone(normalizedVal);
                         if (phoneError) setPhoneError(err || null);
+                        if (accountNotFoundError) setAccountNotFoundError(null);
                       }}
                       disabled={isLoading}
                       error={phoneError}

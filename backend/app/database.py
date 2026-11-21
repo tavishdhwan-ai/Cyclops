@@ -1106,6 +1106,7 @@ def get_user_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
                 WHERE (REPLACE(REPLACE(REPLACE(REPLACE(phone_number, ' ', ''), '-', ''), '(', ''), ')', '') = ?
                    OR phone_number = ?)
                   AND user_id IS NOT NULL
+                  AND mobile_verified = 1
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
