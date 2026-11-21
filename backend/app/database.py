@@ -435,6 +435,7 @@ def get_devices_for_user(user_id: str) -> List[Dict[str, Any]]:
                     "deviceType": r["device_type"],
                     "platform": r["platform"],
                     "credentialId": r["credential_id"],
+                    "publicKey": r["public_key"],
                     "signCount": r["sign_count"],
                     "isActive": bool(r["is_active"]),
                     "lastUsedAt": r["last_used_at"],
@@ -442,4 +443,131 @@ def get_devices_for_user(user_id: str) -> List[Dict[str, Any]]:
                 }
                 for r in rows
             ]
+
+
+def get_active_passkeys_for_user(user_id: str) -> List[Dict[str, Any]]:
+    """Retrieves all active WebAuthn passkey credentials for a user."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT * FROM registered_devices
+                WHERE user_id = ? AND is_active = 1 AND credential_id IS NOT NULL AND public_key IS NOT NULL
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            return [
+                {
+                    "id": r["id"],
+                    "deviceId": r["device_id"],
+                    "userId": r["user_id"],
+                    "deviceName": r["device_name"],
+                    "deviceType": r["device_type"],
+                    "platform": r["platform"],
+                    "credentialId": r["credential_id"],
+                    "publicKey": r["public_key"],
+                    "signCount": r["sign_count"],
+                    "isActive": bool(r["is_active"]),
+                    "lastUsedAt": r["last_used_at"],
+                    "createdAt": r["created_at"],
+                }
+                for r in rows
+            ]
+
+
+def get_device_by_credential_id(credential_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves an active registered device by its WebAuthn credential ID."""
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM registered_devices WHERE credential_id = ? AND is_active = 1",
+                (credential_id,),
+            )
+            r = cur.fetchone()
+            if not r:
+                return None
+            return {
+                "id": r["id"],
+                "deviceId": r["device_id"],
+                "userId": r["user_id"],
+                "deviceName": r["device_name"],
+                "deviceType": r["device_type"],
+                "platform": r["platform"],
+                "credentialId": r["credential_id"],
+                "publicKey": r["public_key"],
+                "signCount": r["sign_count"],
+                "isActive": bool(r["is_active"]),
+                "lastUsedAt": r["last_used_at"],
+                "createdAt": r["created_at"],
+            }
+
+
+def save_verified_passkey_device(
+    user_id: str,
+    device_id: Optional[str],
+    credential_id: str,
+    public_key: str,
+    sign_count: int = 0,
+    device_name: str = "Mobile Platform Authenticator",
+    platform: str = "Mobile",
+) -> Dict[str, Any]:
+    """
+    Saves a cryptographically verified WebAuthn credential to registered_devices.
+    Ensures safe persistence with single credential uniqueness.
+    """
+    final_device_id = device_id or f"dev_{secrets.token_hex(8)}"
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO registered_devices (
+                    id, device_id, user_id, device_name, device_type, platform,
+                    credential_id, public_key, sign_count, is_active, last_used_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(credential_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    public_key = excluded.public_key,
+                    sign_count = excluded.sign_count,
+                    is_active = 1,
+                    last_used_at = excluded.last_used_at
+                """,
+                (
+                    f"passkey_{secrets.token_hex(8)}",
+                    final_device_id,
+                    user_id,
+                    device_name,
+                    "mobile",
+                    platform,
+                    credential_id,
+                    public_key,
+                    sign_count,
+                    now,
+                    now,
+                ),
+            )
+    return {
+        "deviceId": final_device_id,
+        "credentialId": credential_id,
+        "userId": user_id,
+        "signCount": sign_count,
+    }
+
+
+def update_device_sign_count(credential_id: str, new_sign_count: int) -> None:
+    """Updates the signature counter and last_used_at timestamp for a registered passkey."""
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE registered_devices
+                SET sign_count = ?, last_used_at = ?
+                WHERE credential_id = ?
+                """,
+                (new_sign_count, now, credential_id),
+            )
+
 

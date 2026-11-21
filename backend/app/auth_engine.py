@@ -21,6 +21,10 @@ from app.push import dispatch_push_to_user
 from app.webauthn import (
     generate_webauthn_challenge,
     verify_webauthn_assertion,
+    create_registration_options,
+    verify_registration,
+    create_authentication_options,
+    verify_authentication,
     WEBAUTHN_RP_ID,
     WEBAUTHN_ORIGIN,
 )
@@ -30,6 +34,10 @@ from app.database import (
     save_challenge,
     load_challenge,
     record_db_audit,
+    get_active_passkeys_for_user,
+    get_device_by_credential_id,
+    save_verified_passkey_device,
+    update_device_sign_count,
 )
 import phonenumbers
 from phonenumbers import NumberParseException
@@ -125,9 +133,18 @@ class VerifyCallbackRequest(BaseModel):
 class WebAuthnVerificationPayload(BaseModel):
     mobileToken: str
     credentialId: str
-    clientDataJSON: str
-    authenticatorData: str
-    signature: str
+    clientDataJSON: Optional[str] = None
+    authenticatorData: Optional[str] = None
+    signature: Optional[str] = None
+    credential: Optional[Dict[str, Any]] = None
+
+
+class WebAuthnRegistrationPayload(BaseModel):
+    mobileToken: str
+    credential: Dict[str, Any]
+    deviceId: Optional[str] = None
+    deviceName: Optional[str] = "Mobile Device"
+    platform: Optional[str] = "Mobile"
 
 
 class SessionCompleteRequest(BaseModel):
@@ -366,6 +383,7 @@ def validate_mobile_challenge_access(
     """
     Step 3: User opens link on mobile browser (from Push notification or direct link).
     Validates single-use token, checks preliminary device context.
+    Determines whether user has an active passkey and prepares registration or authentication options.
     """
     token_h = hash_token(mobile_token)
 
@@ -404,6 +422,29 @@ def validate_mobile_challenge_access(
             "message": "This verification step requires a supported mobile device (iOS or Android).",
         }
 
+    # Check whether the user already has a registered passkey
+    user_id = challenge["userId"]
+    active_passkeys = get_active_passkeys_for_user(user_id) if user_id else []
+    has_registered_passkey = len(active_passkeys) > 0
+
+    registration_options = None
+    authentication_options = None
+
+    if not has_registered_passkey:
+        auth_mode = "register"
+        registration_options = create_registration_options(
+            user_id=user_id or "user",
+            user_name=tx.get("email", "user@sentinel.ai"),
+            user_display_name=tx.get("email", "Sentinel AI User"),
+            challenge=challenge["webauthnChallenge"],
+        )
+    else:
+        auth_mode = "authenticate"
+        authentication_options = create_authentication_options(
+            registered_credentials=active_passkeys,
+            challenge=challenge["webauthnChallenge"],
+        )
+
     return {
         "valid": True,
         "desktopDenied": False,
@@ -411,6 +452,13 @@ def validate_mobile_challenge_access(
         "webauthnChallenge": challenge["webauthnChallenge"],
         "rpId": WEBAUTHN_RP_ID,
         "userId": challenge["userId"],
+        "mode": auth_mode,
+        "hasRegisteredPasskey": has_registered_passkey,
+        "registrationOptions": registration_options,
+        "authenticationOptions": authentication_options,
+        "registeredCredentials": [
+            {"id": p["credentialId"]} for p in active_passkeys
+        ],
         "requestContext": {
             "browser": tx.get("userAgent", "Desktop Browser"),
             "requestTime": tx.get("createdAt"),
@@ -418,6 +466,103 @@ def validate_mobile_challenge_access(
         },
     }
 
+
+def complete_mobile_registration_gate(
+    payload: WebAuthnRegistrationPayload,
+    user_agent: Optional[str] = None,
+    ip_address: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Step 4a: First-Time Mobile WebAuthn Registration Attestation Verification.
+    Cryptographically verifies attestation using Python webauthn library,
+    stores verified public key and credential in registered_devices table,
+    atomically consumes challenge, and signals cross-device completion of Gate 2.
+    """
+    token_h = hash_token(payload.mobileToken)
+
+    with _lock:
+        challenge = _CHALLENGES.get(token_h)
+        if not challenge:
+            raise ValueError("Challenge token not found or already purged.")
+
+        if challenge["consumedAt"] is not None:
+            raise ValueError("Replay detected: Challenge has already been consumed.")
+
+        if challenge["expiresAt"] < time.time():
+            raise ValueError("WebAuthn registration challenge expired.")
+
+        tx = _TRANSACTIONS.get(challenge["transactionId"])
+        if not tx:
+            raise ValueError("Associated authentication transaction not found.")
+
+        expected_challenge = challenge["webauthnChallenge"]
+        user_id = challenge["userId"]
+
+    try:
+        verified_reg = verify_registration(
+            credential=payload.credential,
+            expected_challenge=expected_challenge,
+            expected_rp_id=WEBAUTHN_RP_ID,
+            expected_origin=WEBAUTHN_ORIGIN,
+            require_user_verification=True,
+        )
+    except Exception as e:
+        record_audit(
+            tx_id=challenge["transactionId"],
+            user_id=user_id,
+            event="WEBAUTHN_REGISTRATION_FAILED",
+            status="FAILURE",
+            details={"error": str(e)},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        raise ValueError(f"Registration verification failed: {str(e)}")
+
+    # Store verified credential in registered_devices
+    save_verified_passkey_device(
+        user_id=user_id,
+        device_id=payload.deviceId,
+        credential_id=verified_reg.credential_id,
+        public_key=verified_reg.public_key,
+        sign_count=verified_reg.sign_count,
+        device_name=payload.deviceName or "Mobile Platform Authenticator",
+        platform=payload.platform or "Mobile",
+    )
+
+    # Atomic consumption of challenge & completion of Gate 2
+    now = time.time()
+    with _lock:
+        challenge["consumedAt"] = now
+        tx["mobileVerified"] = True
+        tx["biometricVerified"] = True
+        tx["state"] = STATE_AUTHENTICATED
+
+    try:
+        save_challenge(challenge)
+        save_transaction(tx)
+    except Exception as db_err:
+        logger.error(f"Database error saving registration verification: {db_err}")
+
+    record_audit(
+        tx_id=challenge["transactionId"],
+        user_id=user_id,
+        event="GATE_TWO_MOBILE_REGISTRATION_VERIFIED",
+        status="SUCCESS",
+        details={
+            "credential_id": verified_reg.credential_id,
+            "user_verified": verified_reg.user_verified,
+        },
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    return {
+        "success": True,
+        "transactionId": challenge["transactionId"],
+        "state": STATE_AUTHENTICATED,
+        "credentialId": verified_reg.credential_id,
+        "message": "Mobile biometric passkey registered and session authorized. You may return to your computer.",
+    }
 
 
 def complete_mobile_biometric_gate(
@@ -428,7 +573,7 @@ def complete_mobile_biometric_gate(
     """
     Step 4: Mobile WebAuthn Assertion Verification.
     Cryptographically verifies assertion, atomically consumes challenge,
-    and signals cross-device completion.
+    updates sign counter, and signals cross-device completion of Gate 2.
     """
     token_h = hash_token(payload.mobileToken)
 
@@ -449,25 +594,67 @@ def complete_mobile_biometric_gate(
 
         expected_challenge = challenge["webauthnChallenge"]
 
-    # Verify WebAuthn assertion server-side
-    verification = verify_webauthn_assertion(
-        expected_challenge=expected_challenge,
-        client_data_json_b64=payload.clientDataJSON,
-        authenticator_data_b64=payload.authenticatorData,
-        signature_b64=payload.signature,
-    )
+    user_verified = False
+    # Check if this credential has a stored verified public key
+    stored_device = get_device_by_credential_id(payload.credentialId)
+    if stored_device and stored_device.get("publicKey"):
+        # Cryptographic verification via Python webauthn library
+        cred_obj = payload.credential
+        if not cred_obj:
+            cred_obj = {
+                "id": payload.credentialId,
+                "rawId": payload.credentialId,
+                "type": "public-key",
+                "response": {
+                    "clientDataJSON": payload.clientDataJSON,
+                    "authenticatorData": payload.authenticatorData,
+                    "signature": payload.signature,
+                },
+            }
 
-    if not verification.is_valid:
-        record_audit(
-            tx_id=challenge["transactionId"],
-            user_id=challenge["userId"],
-            event="WEBAUTHN_ASSERTION_FAILED",
-            status="FAILURE",
-            details={"error": verification.error},
-            ip_address=ip_address,
-            user_agent=user_agent,
+        try:
+            verified_auth = verify_authentication(
+                credential=cred_obj,
+                expected_challenge=expected_challenge,
+                credential_public_key=stored_device["publicKey"],
+                credential_current_sign_count=stored_device.get("signCount", 0),
+                expected_rp_id=WEBAUTHN_RP_ID,
+                expected_origin=WEBAUTHN_ORIGIN,
+                require_user_verification=True,
+            )
+            user_verified = verified_auth.user_verified
+            update_device_sign_count(payload.credentialId, verified_auth.new_sign_count)
+        except Exception as e:
+            record_audit(
+                tx_id=challenge["transactionId"],
+                user_id=challenge["userId"],
+                event="WEBAUTHN_ASSERTION_FAILED",
+                status="FAILURE",
+                details={"error": str(e)},
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            raise ValueError(f"WebAuthn assertion verification failed: {str(e)}")
+    else:
+        # Fallback to direct assertion check for backwards compatibility
+        verification = verify_webauthn_assertion(
+            expected_challenge=expected_challenge,
+            client_data_json_b64=payload.clientDataJSON or "",
+            authenticator_data_b64=payload.authenticatorData or "",
+            signature_b64=payload.signature or "",
         )
-        raise ValueError(verification.error or "WebAuthn verification failed.")
+        if not verification.is_valid:
+            record_audit(
+                tx_id=challenge["transactionId"],
+                user_id=challenge["userId"],
+                event="WEBAUTHN_ASSERTION_FAILED",
+                status="FAILURE",
+                details={"error": verification.error},
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            raise ValueError(verification.error or "WebAuthn verification failed.")
+        user_verified = verification.user_verified
 
     # Atomic consumption of challenge & completion of Gate 2
     now = time.time()
@@ -488,7 +675,7 @@ def complete_mobile_biometric_gate(
         user_id=challenge["userId"],
         event="GATE_TWO_MOBILE_BIOMETRIC_VERIFIED",
         status="SUCCESS",
-        details={"user_verified": verification.user_verified},
+        details={"user_verified": user_verified},
         ip_address=ip_address,
         user_agent=user_agent,
     )

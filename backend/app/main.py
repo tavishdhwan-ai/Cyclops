@@ -246,10 +246,12 @@ from app.auth_engine import (
     StartAuthRequest,
     VerifyCallbackRequest,
     WebAuthnVerificationPayload,
+    WebAuthnRegistrationPayload,
     SessionCompleteRequest,
     start_auth_transaction,
     confirm_email_gate,
     validate_mobile_challenge_access,
+    complete_mobile_registration_gate,
     complete_mobile_biometric_gate,
     finalize_computer_session,
     get_transaction_status,
@@ -334,6 +336,28 @@ async def auth_mobile_challenge_endpoint(
             detail=result.get("error", "Invalid verification link."),
         )
     return result
+
+
+@app.post("/api/auth/webauthn/register", tags=["Sentinel Auth"])
+async def auth_webauthn_register_endpoint(
+    payload: WebAuthnRegistrationPayload,
+    request: Request,
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
+):
+    """
+    Submits WebAuthn attestation for first-time platform passkey registration.
+    Validates attestation, saves credential, consumes challenge, completes Gate 2.
+    """
+    ip_address = request.client.host if request.client else None
+    try:
+        result = complete_mobile_registration_gate(
+            payload=payload,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @app.post("/api/auth/webauthn/verify", tags=["Sentinel Auth"])

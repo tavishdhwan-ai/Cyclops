@@ -11,3 +11,4 @@ phonenumbers>=9.0.0
 pywebpush>=2.0.0
 cryptography>=42.0.0
 PyJWT>=2.8.0
+webauthn==3.0.1

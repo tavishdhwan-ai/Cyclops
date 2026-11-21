@@ -1,6 +1,7 @@
 /**
  * Sentinel AI Client-Side WebAuthn & Platform Authenticator Utilities.
  * Handles platform authenticator checks, challenge encoding, and browser ceremony invocation.
+ * Supports both passkey registration (attestation) and authentication (assertion).
  */
 
 // Base64URL string <-> Uint8Array conversions
@@ -24,6 +25,17 @@ export function base64URLToBuffer(base64url: string): ArrayBuffer {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+function stringOrBufferToBuffer(input: string | ArrayBuffer): ArrayBuffer {
+  if (typeof input !== 'string') {
+    return input;
+  }
+  try {
+    return base64URLToBuffer(input);
+  } catch {
+    return new TextEncoder().encode(input).buffer;
+  }
 }
 
 /**
@@ -78,6 +90,103 @@ export interface WebAuthnAssertionResult {
   };
 }
 
+export interface WebAuthnRegistrationResult {
+  id: string;
+  rawId: string;
+  type: string;
+  response: {
+    clientDataJSON: string;
+    attestationObject: string;
+    transports?: string[];
+    publicKeyAlgorithm?: number;
+    publicKey?: string;
+  };
+  authenticatorAttachment?: string;
+}
+
+/**
+ * Initiates the WebAuthn passkey registration ceremony (attestation) on a supported device.
+ * Enforces platform authenticator (Android Biometrics / Touch ID / Face ID / Windows Hello).
+ */
+export async function performWebAuthnRegistration(options: {
+  challenge: string;
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName?: string };
+  pubKeyCredParams?: Array<{ type: 'public-key'; alg: number }>;
+  authenticatorSelection?: {
+    authenticatorAttachment?: AuthenticatorAttachment;
+    userVerification?: UserVerificationRequirement;
+    residentKey?: ResidentKeyRequirement;
+    requireResidentKey?: boolean;
+  };
+  excludeCredentials?: Array<{ id: string; type: 'public-key' }>;
+  attestation?: AttestationConveyancePreference;
+  timeout?: number;
+}): Promise<WebAuthnRegistrationResult> {
+  const challengeBuffer = base64URLToBuffer(options.challenge);
+  const userIdBuffer = stringOrBufferToBuffer(options.user.id);
+
+  const creationOptions: PublicKeyCredentialCreationOptions = {
+    challenge: challengeBuffer,
+    rp: options.rp,
+    user: {
+      id: userIdBuffer,
+      name: options.user.name,
+      displayName: options.user.displayName || options.user.name,
+    },
+    pubKeyCredParams: options.pubKeyCredParams || [
+      { type: 'public-key', alg: -8 },   // EdDSA
+      { type: 'public-key', alg: -7 },   // ES256 (NIST P-256)
+      { type: 'public-key', alg: -257 }, // RS256
+    ],
+    authenticatorSelection: {
+      authenticatorAttachment: options.authenticatorSelection?.authenticatorAttachment || 'platform',
+      userVerification: options.authenticatorSelection?.userVerification || 'required',
+      residentKey: options.authenticatorSelection?.residentKey || 'preferred',
+      requireResidentKey: options.authenticatorSelection?.requireResidentKey || false,
+    },
+    attestation: options.attestation || 'none',
+    timeout: options.timeout || 60000,
+  };
+
+  if (options.excludeCredentials && options.excludeCredentials.length > 0) {
+    creationOptions.excludeCredentials = options.excludeCredentials.map((c) => ({
+      type: 'public-key',
+      id: base64URLToBuffer(c.id),
+      transports: ['internal'],
+    }));
+  }
+
+  const credential = (await navigator.credentials.create({
+    publicKey: creationOptions,
+  })) as PublicKeyCredential | null;
+
+  if (!credential || credential.type !== 'public-key') {
+    throw new Error('WebAuthn passkey registration failed or was cancelled.');
+  }
+
+  const response = credential.response as AuthenticatorAttestationResponse;
+  const rawResponse = response as unknown as {
+    getTransports?: () => string[];
+    getPublicKeyAlgorithm?: () => number;
+    getPublicKey?: () => ArrayBuffer | null;
+  };
+
+  return {
+    id: credential.id,
+    rawId: bufferToBase64URL(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: bufferToBase64URL(response.clientDataJSON),
+      attestationObject: bufferToBase64URL(response.attestationObject),
+      transports: typeof rawResponse.getTransports === 'function' ? rawResponse.getTransports() : undefined,
+      publicKeyAlgorithm: typeof rawResponse.getPublicKeyAlgorithm === 'function' ? rawResponse.getPublicKeyAlgorithm() : undefined,
+      publicKey: typeof rawResponse.getPublicKey === 'function' && rawResponse.getPublicKey() ? bufferToBase64URL(rawResponse.getPublicKey()!) : undefined,
+    },
+    authenticatorAttachment: (credential as unknown as { authenticatorAttachment?: string }).authenticatorAttachment || 'platform',
+  };
+}
+
 /**
  * Initiates the WebAuthn authentication ceremony on a supported mobile device.
  * Triggers Face ID, Touch ID, Android Biometrics, or device unlock.
@@ -108,7 +217,7 @@ export async function performWebAuthnAssertion(options: {
 
   const credential = (await navigator.credentials.get({
     publicKey: publicKeyCredentialRequestOptions,
-  })) as PublicKeyCredential;
+  })) as PublicKeyCredential | null;
 
   if (!credential || credential.type !== 'public-key') {
     throw new Error('WebAuthn assertion failed or was cancelled.');
