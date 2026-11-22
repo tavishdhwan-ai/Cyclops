@@ -123,6 +123,7 @@ def hash_token(raw_token: str) -> str:
 class StartAuthRequest(BaseModel):
     email: str
     phoneNumber: str
+    transactionId: Optional[str] = None
     userAgent: Optional[str] = None
 
 
@@ -186,6 +187,7 @@ def start_auth_transaction(
     phone_number: str,
     user_agent: Optional[str] = None,
     ip_address: Optional[str] = None,
+    transaction_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Step 1: Initiates a new two-channel authentication transaction.
@@ -194,7 +196,19 @@ def start_auth_transaction(
     """
     normalized_email = validate_email_address(email)
     normalized_phone = validate_and_normalize_phone(phone_number)
-    tx_id = f"tx_{secrets.token_hex(16)}"
+
+    # Use client-provided secure transaction ID if valid format, otherwise generate one
+    if (
+        transaction_id
+        and isinstance(transaction_id, str)
+        and transaction_id.startswith("tx_")
+        and len(transaction_id) >= 20
+        and re.match(r"^tx_[a-zA-Z0-9_\-]+$", transaction_id)
+    ):
+        tx_id = transaction_id
+    else:
+        tx_id = f"tx_{secrets.token_hex(16)}"
+
     now = time.time()
     expires_at = now + 900  # 15 minutes lifetime
 

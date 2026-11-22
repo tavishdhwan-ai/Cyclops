@@ -760,7 +760,7 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
                     {isLoading ? (
                       <>
                         <div className="h-3.5 w-3.5 border-2 border-white dark:border-zinc-900 border-t-transparent rounded-full animate-spin" />
-                        <span>{authMode === 'signup' ? 'Initiating Registration...' : 'Initiating Authentication...'}</span>
+                        <span>{authMode === 'signup' ? 'Creating Account & Sending Link...' : 'Initiating Authentication...'}</span>
                       </>
                     ) : (
                       <>

@@ -98,7 +98,7 @@ interface SecurityPreferences {
 export default function SettingsPage() {
   const { settings, updateSettings, showToast } = useDemoContext();
   const { theme, setTheme } = useTheme();
-  const { user, profile, updateProfile, signOut, deleteAccount, sessionToken } = useAuth();
+  const { user, profile, updateProfile, signOut, deleteAccount, sessionToken, isSigningOut } = useAuth();
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'activity' | 'privacy'>('profile');
@@ -541,11 +541,21 @@ export default function SettingsPage() {
             </span>
             <button
               type="button"
+              disabled={isSigningOut}
               onClick={signOut}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
             >
-              <LogOut className="h-3.5 w-3.5" />
-              <span>Sign Out</span>
+              {isSigningOut ? (
+                <>
+                  <div className="h-3.5 w-3.5 border-2 border-zinc-600 dark:border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                  <span>Signing Out...</span>
+                </>
+              ) : (
+                <>
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>Sign Out</span>
+                </>
+              )}
             </button>
           </div>
         ) : (

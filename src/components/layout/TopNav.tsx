@@ -13,9 +13,9 @@ interface TopNavProps {
 }
 
 export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => {
-  const pathname = usePathname();
+  const { pathname } = { pathname: usePathname() };
   const { setIsQuickScanOpen, triggerRescan } = useDemoContext();
-  const { user, signOut } = useAuth();
+  const { user, signOut, isSigningOut } = useAuth();
 
   const getPageTitle = (path: string) => {
     if (path.startsWith('/emails')) return 'Email Scanner';
@@ -96,11 +96,21 @@ export const TopNav: React.FC<TopNavProps> = ({ mobileOpen, setMobileOpen }) => 
         {user && (
           <button
             onClick={() => signOut()}
+            disabled={isSigningOut}
             aria-label="Sign Out"
-            className="flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/60 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/60 dark:bg-red-950/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50 px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
           >
-            <LogOut className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline">Sign Out</span>
+            {isSigningOut ? (
+              <>
+                <div className="h-3.5 w-3.5 border-2 border-red-600 dark:border-red-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                <span className="hidden sm:inline">Signing Out...</span>
+              </>
+            ) : (
+              <>
+                <LogOut className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Sign Out</span>
+              </>
+            )}
           </button>
         )}
       </div>

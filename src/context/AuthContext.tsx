@@ -39,6 +39,7 @@ interface AuthContextType {
   profile: UserProfile;
   isLoading: boolean;
   isConfigured: boolean;
+  isSigningOut: boolean;
   sessionToken: string | null;
   startSentinelAuth: (
     email: string,
@@ -113,6 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(() => configured);
+  const [isSigningOut, setIsSigningOut] = useState<boolean>(false);
 
   // Restore authenticated session on mount
   useEffect(() => {
@@ -172,12 +174,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [configured]);
 
-  // Step 1: Start Sentinel Two-Channel Authentication
+  // Step 1: Start Sentinel Two-Channel Authentication (Concurrent Backend + Supabase)
   const startSentinelAuth = useCallback(
     async (
       email: string,
       phoneNumber: string
     ): Promise<{ success: boolean; transactionId?: string; error?: string }> => {
+      const startTime = performance.now();
       const emailVal = validateEmail(email);
       if (!emailVal.isValid) {
         return { success: false, error: emailVal.error };
@@ -189,15 +192,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        // 1. Call server to initiate authoritative transaction
-        const res = await fetch('/api/auth/start', {
+        // Pre-generate cryptographically random transaction ID client-side
+        // so backend transaction creation and Supabase OTP dispatch run concurrently
+        const randomBytes = new Uint8Array(16);
+        if (typeof window !== 'undefined' && window.crypto) {
+          window.crypto.getRandomValues(randomBytes);
+        } else {
+          for (let i = 0; i < 16; i++) randomBytes[i] = Math.floor(Math.random() * 256);
+        }
+        const preGeneratedTxId =
+          'tx_' + Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+        // 1. Backend transaction creation promise
+        const backendPromise = fetch('/api/auth/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: emailVal.normalized,
             phoneNumber: phoneVal.normalized,
+            transactionId: preGeneratedTxId,
           }),
         });
+
+        // 2. Supabase OTP dispatch promise (runs concurrently with backend)
+        const supabase = createClient();
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const callbackUrl = `${origin}/auth/callback?tx=${preGeneratedTxId}`;
+
+        const supabasePromise =
+          supabase && configured
+            ? supabase.auth.signInWithOtp({
+                email: emailVal.normalized,
+                options: {
+                  emailRedirectTo: callbackUrl,
+                  shouldCreateUser: true,
+                },
+              })
+            : Promise.resolve({ data: null, error: null });
+
+        // Await both operations concurrently
+        const [res, supabaseResult] = await Promise.all([backendPromise, supabasePromise]);
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
@@ -212,28 +246,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
 
-        const data = await res.json();
-        const transactionId = data.transactionId;
-
-        // 2. Dispatch genuine email magic link via Supabase if configured
-        const supabase = createClient();
-        if (supabase && configured) {
-          const origin = typeof window !== 'undefined' ? window.location.origin : '';
-          const callbackUrl = `${origin}/auth/callback?tx=${transactionId}`;
-          const { error } = await supabase.auth.signInWithOtp({
-            email: emailVal.normalized,
-            options: {
-              emailRedirectTo: callbackUrl,
-              shouldCreateUser: true,
-            },
-          });
-
-          if (error) {
-            return { success: false, error: formatAuthError(error) };
-          }
+        if (supabaseResult?.error) {
+          return { success: false, error: formatAuthError(supabaseResult.error) };
         }
 
-        return { success: true, transactionId };
+        const data = await res.json().catch(() => ({}));
+        const finalTxId = data.transactionId || preGeneratedTxId;
+        const totalDuration = performance.now() - startTime;
+        console.info(
+          `[Sentinel Performance] startSentinelAuth completed in ${totalDuration.toFixed(1)}ms (backend: ${data.durationMs ?? 'n/a'}ms)`
+        );
+
+        return { success: true, transactionId: finalTxId };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Network error initiating authentication.';
         return { success: false, error: msg };
@@ -480,36 +504,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [profile, configured, user, sessionToken]
   );
 
-  // Sign out cleanly
+  // Sign out cleanly with concurrent backend session revocation and Supabase signout
   const signOut = useCallback(async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch (err) {
-      console.warn('Backend logout notification error:', err);
-    }
+    setIsSigningOut(true);
+    const startTime = performance.now();
 
-    const supabase = createClient();
-    if (supabase && configured) {
-      try {
-        await supabase.auth.signOut();
-      } catch (err) {
-        console.error('Sign out error:', err);
+    try {
+      const currentToken =
+        sessionToken ||
+        (typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_TOKEN_KEY) : null);
+
+      // 1. Backend session revocation with 3500ms timeout controller
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      const logoutHeaders: Record<string, string> = {};
+      if (currentToken) {
+        logoutHeaders['Authorization'] = `Bearer ${currentToken}`;
       }
+
+      const backendLogoutPromise = fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: logoutHeaders,
+        signal: controller.signal,
+      })
+        .catch((err) => {
+          console.warn('[Sentinel Auth] Backend logout call notice:', err?.name === 'AbortError' ? 'timeout' : err);
+          return null;
+        })
+        .finally(() => clearTimeout(timeoutId));
+
+      // 2. Supabase signout promise (concurrent)
+      const supabase = createClient();
+      const supabaseLogoutPromise =
+        supabase && configured
+          ? supabase.auth.signOut().catch((err) => {
+              console.warn('[Sentinel Auth] Supabase sign out notice:', err);
+              return null;
+            })
+          : Promise.resolve(null);
+
+      // Wait for both concurrently (neither blocks the other)
+      await Promise.allSettled([backendLogoutPromise, supabaseLogoutPromise]);
+    } catch (err) {
+      console.warn('[Sentinel Auth] Sign out coordination notice:', err);
+    } finally {
+      // 3. Clear local storage and cookie unconditionally
+      try {
+        localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
+        localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
+        localStorage.removeItem(LOCAL_STORAGE_TOKEN_KEY);
+        document.cookie =
+          'sentinel_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0; SameSite=Lax;';
+      } catch {}
+
+      // 4. Reset in-memory state
+      setSessionToken(null);
+      setUser(null);
+      setProfile(defaultProfile);
+      setIsSigningOut(false);
+
+      const duration = performance.now() - startTime;
+      console.info(`[Sentinel Performance] signOut completed in ${duration.toFixed(1)}ms`);
+
+      router.replace('/login');
     }
-
-    try {
-      localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
-      localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
-      localStorage.removeItem(LOCAL_STORAGE_TOKEN_KEY);
-      // Remove sentinel_session cookie
-      document.cookie = 'sentinel_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-    } catch {}
-
-    setSessionToken(null);
-    setUser(null);
-    setProfile(defaultProfile);
-    router.push('/login');
-  }, [configured, router]);
+  }, [configured, router, sessionToken]);
 
   // Account deletion
   const deleteAccount = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
@@ -543,6 +603,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile,
         isLoading,
         isConfigured: configured,
+        isSigningOut,
         sessionToken,
         startSentinelAuth,
         confirmEmailGate,

@@ -1,6 +1,7 @@
 import logging
 import secrets
 import base64
+import time
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, Request, status, UploadFile, File, Header, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -452,16 +453,20 @@ async def auth_start_endpoint(
     Step 1: Start 2-channel authentication transaction with email and mobile number.
     Returns opaque transactionId and initiates Gate 1.
     """
+    t0 = time.perf_counter()
     ip_address = request.client.host if request.client else None
     correlation_id = f"corr_{secrets.token_hex(8)}"
     try:
         result = start_auth_transaction(
             email=payload.email,
             phone_number=payload.phoneNumber,
-            user_agent=user_agent,
+            user_agent=user_agent or payload.userAgent,
             ip_address=ip_address,
+            transaction_id=payload.transactionId,
         )
-        logger.info(f"[{correlation_id}] Initiated auth transaction: {result.get('transactionId')}")
+        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+        result["durationMs"] = duration_ms
+        logger.info(f"[{correlation_id}] Initiated auth transaction: {result.get('transactionId')} in {duration_ms}ms")
         return result
     except ValueError as e:
         logger.warning(f"[{correlation_id}] Auth transaction rejected: {str(e)}")
@@ -593,12 +598,15 @@ async def auth_logout_endpoint(
     """
     Step 6: Revokes the authenticated session on the server.
     """
+    t0 = time.perf_counter()
     raw_token = authorization
     if raw_token and raw_token.lower().startswith("bearer "):
         raw_token = raw_token[7:].strip()
 
     revoked = revoke_session(token=raw_token)
-    return {"success": True, "revoked": revoked, "message": "Session invalidated."}
+    duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+    logger.info(f"Session logout completed in {duration_ms}ms (revoked={revoked})")
+    return {"success": True, "revoked": revoked, "durationMs": duration_ms, "message": "Session invalidated."}
 
 
 # ------------------------------------------------------------------------------

@@ -24,7 +24,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) => {
   const pathname = usePathname();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, isSigningOut } = useAuth();
 
   const navItems = [
     { name: 'Home', href: '/', icon: Home },
@@ -147,15 +147,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
             {/* Obvious, Accessible Sign Out Button */}
             <button
               type="button"
+              disabled={isSigningOut}
               onClick={async () => {
                 if (setMobileOpen) setMobileOpen(false);
                 await signOut();
               }}
               aria-label="Sign out of Sentinel AI"
-              className="w-full flex items-center justify-center gap-2 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/60 dark:bg-red-950/20 py-2 px-3 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors cursor-pointer shadow-2xs"
+              className="w-full flex items-center justify-center gap-2 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/60 dark:bg-red-950/20 py-2 px-3 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50 transition-colors cursor-pointer shadow-2xs"
             >
-              <LogOut className="h-3.5 w-3.5 shrink-0" />
-              <span>Sign Out</span>
+              {isSigningOut ? (
+                <>
+                  <div className="h-3.5 w-3.5 border-2 border-red-600 dark:border-red-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <span>Signing Out...</span>
+                </>
+              ) : (
+                <>
+                  <LogOut className="h-3.5 w-3.5 shrink-0" />
+                  <span>Sign Out</span>
+                </>
+              )}
             </button>
           </div>
         ) : (

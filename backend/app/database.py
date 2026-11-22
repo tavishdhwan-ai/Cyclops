@@ -20,18 +20,19 @@ _db_lock = threading.RLock()
 
 
 def get_db_connection() -> sqlite3.Connection:
-    """Creates a thread-safe SQLite connection with WAL mode and row factory."""
+    """Creates a thread-safe SQLite connection with optimized cache and row factory."""
     conn = sqlite3.connect(DB_PATH, timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA cache_size=-64000;")  # 64MB memory cache
     return conn
 
 
 def init_db():
-    """Initializes tables matching 001_sentinel_auth_schema.sql."""
+    """Initializes tables matching 001_sentinel_auth_schema.sql and configures WAL mode."""
     with _db_lock:
         with get_db_connection() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.executescript("""
             CREATE TABLE IF NOT EXISTS user_profiles (
                 id TEXT PRIMARY KEY,

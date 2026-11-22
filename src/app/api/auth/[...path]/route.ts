@@ -20,6 +20,12 @@ async function forwardRequest(request: NextRequest, pathParts: string[]) {
     }
   });
 
+  // If path is logout and sentinel_session cookie is present without explicit Authorization, pass it
+  const sessionCookie = request.cookies.get('sentinel_session')?.value;
+  if (path === 'logout' && sessionCookie && !headers.has('authorization')) {
+    headers.set('Authorization', `Bearer ${sessionCookie}`);
+  }
+
   let body: BodyInit | undefined = undefined;
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     body = await request.text();
