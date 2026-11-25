@@ -651,35 +651,25 @@ def finalize_push_login_session(
     }
     session_token = jwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
 
-    # Record active session in SQLite auth_sessions
-    with database._db_lock:
-        with database.get_db_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO auth_sessions (
-                    id, transaction_id, user_id, email, phone_number,
-                    email_verified, mobile_verified, biometric_verified,
-                    biometric_status, state, user_agent, ip_address,
-                    expires_at, last_active_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, 1, 1, 1, 'verified', 'AUTHENTICATED', ?, ?, ?, ?, ?)
-                ON CONFLICT(transaction_id) DO UPDATE SET
-                    user_id = excluded.user_id,
-                    state = 'AUTHENTICATED',
-                    last_active_at = excluded.last_active_at
-                """,
-                (
-                    session_id,
-                    transaction_id,
-                    user_id,
-                    email,
-                    phone,
-                    user_agent,
-                    ip_address,
-                    now + 86400 * 7,
-                    now,
-                    now,
-                ),
-            )
+    # Record active session across persistence layers (PostgreSQL or SQLite)
+    session_record = {
+        "id": session_id,
+        "transactionId": transaction_id,
+        "userId": user_id,
+        "email": email,
+        "phoneNumber": phone,
+        "emailVerified": True,
+        "mobileVerified": True,
+        "biometricVerified": True,
+        "biometricStatus": "verified",
+        "state": STATE_AUTHENTICATED,
+        "userAgent": user_agent,
+        "ipAddress": ip_address,
+        "expiresAt": now + 86400 * 7,
+        "lastActiveAt": now,
+        "createdAt": now,
+    }
+    database.save_transaction(session_record)
 
     database.record_db_audit({
         "id": f"audit_{secrets.token_hex(8)}",

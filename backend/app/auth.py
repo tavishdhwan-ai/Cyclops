@@ -207,15 +207,7 @@ def save_user_profile(user_id: str, profile_data: Dict[str, Any]) -> Dict[str, A
 
 def delete_user_account(user_id: str) -> bool:
     """Purge all user-specific data upon account deletion."""
-    with database._db_lock:
-        with database.get_db_connection() as conn:
-            conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM registered_devices WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM auth_challenges WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM auth_audit_events WHERE user_id = ?", (user_id,))
-
+    deleted = database.delete_user_account(user_id)
     if user_id in _USER_PROFILES:
         del _USER_PROFILES[user_id]
-    return True
+    return deleted

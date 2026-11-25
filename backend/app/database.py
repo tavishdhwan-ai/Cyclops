@@ -18,10 +18,48 @@ logger = logging.getLogger("sentinel.database")
 DB_PATH = os.getenv("SENTINEL_DB_PATH", os.path.join(os.path.dirname(os.path.dirname(__file__)), "sentinel_auth.db"))
 _db_lock = threading.RLock()
 
+# Optional PostgreSQL persistence backend adapter
+try:
+    from app import postgres_database
+except ImportError:
+    try:
+        import postgres_database
+    except ImportError:
+        postgres_database = None
+
+
+def get_db_path() -> str:
+    """Returns the current SQLite database path from environment or default."""
+    return os.getenv("SENTINEL_DB_PATH", DB_PATH)
+
+
+def use_postgres() -> bool:
+    """
+    Returns True if the backend is configured to use PostgreSQL.
+    Defaults to False (SQLite) when SENTINEL_DB_BACKEND is not set or set to 'sqlite'.
+    When SENTINEL_DB_BACKEND is explicitly set to 'postgres', enforces PostgreSQL
+    and fails fast if the driver or URL is missing (never silently falls back to SQLite).
+    """
+    backend_choice = os.getenv("SENTINEL_DB_BACKEND", "sqlite").strip().lower()
+    if backend_choice != "postgres":
+        return False
+    if not postgres_database or not postgres_database.is_driver_available():
+        raise RuntimeError(
+            "PostgreSQL persistence explicitly requested via SENTINEL_DB_BACKEND=postgres, "
+            "but no supported driver (psycopg/psycopg2) is installed. Failing fast to prevent silent fallback to SQLite."
+        )
+    pg_url = postgres_database.get_postgres_url() if hasattr(postgres_database, "get_postgres_url") else postgres_database.POSTGRES_URL
+    if not pg_url:
+        raise ValueError(
+            "PostgreSQL persistence explicitly requested via SENTINEL_DB_BACKEND=postgres, "
+            "but neither SENTINEL_DATABASE_URL nor DATABASE_URL is set. Failing fast to prevent silent fallback to SQLite."
+        )
+    return True
+
 
 def get_db_connection() -> sqlite3.Connection:
     """Creates a thread-safe SQLite connection with optimized cache and row factory."""
-    conn = sqlite3.connect(DB_PATH, timeout=10.0, check_same_thread=False)
+    conn = sqlite3.connect(get_db_path(), timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA cache_size=-64000;")  # 64MB memory cache
@@ -211,6 +249,8 @@ init_db()
 
 def save_transaction(tx_data: Dict[str, Any]) -> None:
     """Inserts or updates an authentication transaction record in auth_sessions."""
+    if use_postgres():
+        return postgres_database.save_transaction(tx_data)
     with _db_lock:
         with get_db_connection() as conn:
             conn.execute(
@@ -267,6 +307,8 @@ def save_transaction(tx_data: Dict[str, Any]) -> None:
 
 def load_transaction(tx_id: str) -> Optional[Dict[str, Any]]:
     """Retrieves an authentication transaction from auth_sessions."""
+    if use_postgres():
+        return postgres_database.load_transaction(tx_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute("SELECT * FROM auth_sessions WHERE transaction_id = ?", (tx_id,))
@@ -298,6 +340,8 @@ def load_transaction(tx_id: str) -> Optional[Dict[str, Any]]:
 
 def save_challenge(challenge_data: Dict[str, Any]) -> None:
     """Inserts or updates an authentication challenge in auth_challenges."""
+    if use_postgres():
+        return postgres_database.save_challenge(challenge_data)
     with _db_lock:
         with get_db_connection() as conn:
             conn.execute(
@@ -333,6 +377,8 @@ def save_challenge(challenge_data: Dict[str, Any]) -> None:
 
 def load_challenge(token_hash: str) -> Optional[Dict[str, Any]]:
     """Retrieves an authentication challenge by token hash."""
+    if use_postgres():
+        return postgres_database.load_challenge(token_hash)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute("SELECT * FROM auth_challenges WHERE token_hash = ?", (token_hash,))
@@ -356,6 +402,8 @@ def load_challenge(token_hash: str) -> Optional[Dict[str, Any]]:
 
 def record_db_audit(audit_entry: Dict[str, Any]) -> None:
     """Records an immutable audit event in auth_audit_events."""
+    if use_postgres():
+        return postgres_database.record_db_audit(audit_entry)
     with _db_lock:
         with get_db_connection() as conn:
             details_json = json.dumps(audit_entry.get("details", {}))
@@ -382,6 +430,8 @@ def record_db_audit(audit_entry: Dict[str, Any]) -> None:
 
 def save_push_subscription(sub_data: Dict[str, Any]) -> None:
     """Inserts or updates a browser push subscription for a user."""
+    if use_postgres():
+        return postgres_database.save_push_subscription(sub_data)
     with _db_lock:
         with get_db_connection() as conn:
             conn.execute(
@@ -413,6 +463,8 @@ def save_push_subscription(sub_data: Dict[str, Any]) -> None:
 
 def get_push_subscriptions_for_user(user_id: str) -> List[Dict[str, Any]]:
     """Retrieves all active push subscriptions for a user."""
+    if use_postgres():
+        return postgres_database.get_push_subscriptions_for_user(user_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute("SELECT * FROM push_subscriptions WHERE user_id = ?", (user_id,))
@@ -435,6 +487,8 @@ def get_push_subscriptions_for_user(user_id: str) -> List[Dict[str, Any]]:
 
 def delete_push_subscription(endpoint: str) -> None:
     """Deletes an invalid or expired push subscription."""
+    if use_postgres():
+        return postgres_database.delete_push_subscription(endpoint)
     with _db_lock:
         with get_db_connection() as conn:
             conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
@@ -442,6 +496,8 @@ def delete_push_subscription(endpoint: str) -> None:
 
 def register_device(device_data: Dict[str, Any]) -> None:
     """Registers or updates a trusted mobile device."""
+    if use_postgres():
+        return postgres_database.register_device(device_data)
     with _db_lock:
         with get_db_connection() as conn:
             conn.execute(
@@ -478,6 +534,8 @@ def register_device(device_data: Dict[str, Any]) -> None:
 
 def get_devices_for_user(user_id: str) -> List[Dict[str, Any]]:
     """Retrieves all registered devices for a user."""
+    if use_postgres():
+        return postgres_database.get_devices_for_user(user_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -505,6 +563,8 @@ def get_devices_for_user(user_id: str) -> List[Dict[str, Any]]:
 
 def get_active_passkeys_for_user(user_id: str) -> List[Dict[str, Any]]:
     """Retrieves all active WebAuthn passkey credentials for a user."""
+    if use_postgres():
+        return postgres_database.get_active_passkeys_for_user(user_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -537,6 +597,8 @@ def get_active_passkeys_for_user(user_id: str) -> List[Dict[str, Any]]:
 
 def get_device_by_credential_id(credential_id: str) -> Optional[Dict[str, Any]]:
     """Retrieves an active registered device by its WebAuthn credential ID."""
+    if use_postgres():
+        return postgres_database.get_device_by_credential_id(credential_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -575,6 +637,10 @@ def save_verified_passkey_device(
     Saves a cryptographically verified WebAuthn credential to registered_devices.
     Ensures safe persistence with single credential uniqueness.
     """
+    if use_postgres():
+        return postgres_database.save_verified_passkey_device(
+            user_id, device_id, credential_id, public_key, sign_count, device_name, platform
+        )
     final_device_id = device_id or f"dev_{secrets.token_hex(8)}"
     now = time.time()
     with _db_lock:
@@ -630,6 +696,8 @@ def save_verified_passkey_device(
 
 def update_device_sign_count(credential_id: str, new_sign_count: int) -> None:
     """Updates the signature counter and last_used_at timestamp for a registered passkey."""
+    if use_postgres():
+        return postgres_database.update_device_sign_count(credential_id, new_sign_count)
     now = time.time()
     with _db_lock:
         with get_db_connection() as conn:
@@ -649,6 +717,8 @@ def update_device_sign_count(credential_id: str, new_sign_count: int) -> None:
 
 def get_user_profile_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Retrieves full user profile by user_id from SQLite."""
+    if use_postgres():
+        return postgres_database.get_user_profile_by_user_id(user_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -688,6 +758,8 @@ def get_user_profile_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
 
 def get_user_profile_by_email(email: str) -> Optional[Dict[str, Any]]:
     """Retrieves user profile by normalized email address."""
+    if use_postgres():
+        return postgres_database.get_user_profile_by_email(email)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute("SELECT user_id FROM user_profiles WHERE LOWER(email) = LOWER(?)", (email.strip(),))
@@ -699,6 +771,8 @@ def get_user_profile_by_email(email: str) -> Optional[Dict[str, Any]]:
 
 def check_username_available(username: str, exclude_user_id: Optional[str] = None) -> bool:
     """Checks if a username is valid and available (unique across all accounts)."""
+    if use_postgres():
+        return postgres_database.check_username_available(username, exclude_user_id)
     clean_username = username.strip().lower()
     if not clean_username or len(clean_username) < 3 or len(clean_username) > 30:
         return False
@@ -724,6 +798,8 @@ def check_username_available(username: str, exclude_user_id: Optional[str] = Non
 
 def save_or_update_user_profile(user_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
     """Upserts full user profile into user_profiles with validation and atomic SQLite commit."""
+    if use_postgres():
+        return postgres_database.save_or_update_user_profile(user_id, profile_data)
     now = time.time()
     existing = get_user_profile_by_user_id(user_id)
 
@@ -801,6 +877,8 @@ def get_user_registered_passkeys(user_id: str) -> List[Dict[str, Any]]:
     Returns registered passkeys for security dashboard.
     Redacts private/public key raw cryptographic secrets.
     """
+    if use_postgres():
+        return postgres_database.get_user_registered_passkeys(user_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -834,6 +912,8 @@ def get_user_registered_passkeys(user_id: str) -> List[Dict[str, Any]]:
 
 def revoke_passkey_credential(user_id: str, credential_id: str) -> bool:
     """Revokes a specific WebAuthn passkey credential for a user."""
+    if use_postgres():
+        return postgres_database.revoke_passkey_credential(user_id, credential_id)
     now = time.time()
     with _db_lock:
         with get_db_connection() as conn:
@@ -850,6 +930,8 @@ def revoke_passkey_credential(user_id: str, credential_id: str) -> bool:
 
 def get_user_trusted_devices(user_id: str) -> List[Dict[str, Any]]:
     """Returns trusted devices list for user."""
+    if use_postgres():
+        return postgres_database.get_user_trusted_devices(user_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -888,6 +970,8 @@ def get_user_trusted_devices(user_id: str) -> List[Dict[str, Any]]:
 
 def revoke_trusted_device(user_id: str, device_id: str) -> bool:
     """Revokes a trusted device and its associated passkeys."""
+    if use_postgres():
+        return postgres_database.revoke_trusted_device(user_id, device_id)
     now = time.time()
     with _db_lock:
         with get_db_connection() as conn:
@@ -909,6 +993,8 @@ def revoke_trusted_device(user_id: str, device_id: str) -> bool:
 
 def get_user_audit_events(user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     """Retrieves real audit events for the authenticated user from SQLite."""
+    if use_postgres():
+        return postgres_database.get_user_audit_events(user_id, limit)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -944,6 +1030,8 @@ def get_user_audit_events(user_id: str, limit: int = 50) -> List[Dict[str, Any]]
 
 def get_user_active_sessions(user_id: str) -> List[Dict[str, Any]]:
     """Retrieves active sessions for the user from auth_sessions."""
+    if use_postgres():
+        return postgres_database.get_user_active_sessions(user_id)
     now = time.time()
     with _db_lock:
         with get_db_connection() as conn:
@@ -976,6 +1064,8 @@ def get_user_active_sessions(user_id: str) -> List[Dict[str, Any]]:
 
 def revoke_user_session(user_id: str, session_id: str) -> bool:
     """Revokes a specific session for a user."""
+    if use_postgres():
+        return postgres_database.revoke_user_session(user_id, session_id)
     now = time.time()
     with _db_lock:
         with get_db_connection() as conn:
@@ -992,6 +1082,8 @@ def revoke_user_session(user_id: str, session_id: str) -> bool:
 
 def revoke_all_other_sessions(user_id: str, current_session_id: str) -> int:
     """Revokes all active sessions for a user except the current session."""
+    if use_postgres():
+        return postgres_database.revoke_all_other_sessions(user_id, current_session_id)
     now = time.time()
     with _db_lock:
         with get_db_connection() as conn:
@@ -1008,6 +1100,8 @@ def revoke_all_other_sessions(user_id: str, current_session_id: str) -> int:
 
 def get_security_preferences(user_id: str) -> Dict[str, bool]:
     """Retrieves security notification preferences for user."""
+    if use_postgres():
+        return postgres_database.get_security_preferences(user_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -1036,6 +1130,8 @@ def get_security_preferences(user_id: str) -> Dict[str, bool]:
 
 def update_security_preferences(user_id: str, prefs: Dict[str, bool]) -> Dict[str, bool]:
     """Updates security notification preferences for user, creating profile record if absent."""
+    if use_postgres():
+        return postgres_database.update_security_preferences(user_id, prefs)
     now = time.time()
     current = get_security_preferences(user_id)
     # Merge existing preferences with provided updates
@@ -1073,6 +1169,8 @@ def update_security_preferences(user_id: str, prefs: Dict[str, bool]) -> Dict[st
 
 def get_user_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
     """Retrieves verified user identity by normalized phone number."""
+    if use_postgres():
+        return postgres_database.get_user_by_phone(phone_number)
     if not phone_number:
         return None
     # Strip spaces, hyphens, and parens for uniform matching
@@ -1126,6 +1224,8 @@ def get_user_by_phone(phone_number: str) -> Optional[Dict[str, Any]]:
 
 def save_push_login_transaction(tx: Dict[str, Any]) -> None:
     """Inserts or replaces a push login transaction in SQLite."""
+    if use_postgres():
+        return postgres_database.save_push_login_transaction(tx)
     with _db_lock:
         with get_db_connection() as conn:
             conn.execute(
@@ -1170,6 +1270,8 @@ def save_push_login_transaction(tx: Dict[str, Any]) -> None:
 
 def get_push_login_transaction(transaction_id: str) -> Optional[Dict[str, Any]]:
     """Retrieves a push login transaction by transaction_id."""
+    if use_postgres():
+        return postgres_database.get_push_login_transaction(transaction_id)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -1203,6 +1305,8 @@ def get_push_login_transaction(transaction_id: str) -> Optional[Dict[str, Any]]:
 
 def get_push_login_transaction_by_hash(token_hash: str) -> Optional[Dict[str, Any]]:
     """Retrieves a push login transaction by mobile token hash."""
+    if use_postgres():
+        return postgres_database.get_push_login_transaction_by_hash(token_hash)
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -1245,6 +1349,11 @@ def update_push_login_transaction_state(
     completed_at: Optional[float] = None,
 ) -> bool:
     """Updates the state and lifecycle timestamps of a push login transaction."""
+    if use_postgres():
+        return postgres_database.update_push_login_transaction_state(
+            transaction_id, new_state, webauthn_challenge, credential_id,
+            approved_at, rejected_at, authenticated_at, completed_at
+        )
     with _db_lock:
         with get_db_connection() as conn:
             cur = conn.execute(
@@ -1271,6 +1380,46 @@ def update_push_login_transaction_state(
                 ),
             )
             return cur.rowcount > 0
+
+
+def revoke_auth_session(session_or_tx_id: str) -> bool:
+    """Revokes an active session by transaction_id or session id."""
+    if use_postgres():
+        return postgres_database.revoke_auth_session(session_or_tx_id)
+    now = time.time()
+    with _db_lock:
+        with get_db_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE auth_sessions
+                SET is_revoked = 1, revoked_at = ?, state = 'REVOKED'
+                WHERE transaction_id = ? OR id = ?
+                """,
+                (now, session_or_tx_id, session_or_tx_id),
+            )
+            return cur.rowcount > 0
+
+
+def delete_user_account(user_id: str) -> bool:
+    """Deletes all data for a user across all persistence tables."""
+    if use_postgres():
+        return postgres_database.delete_user_account(user_id)
+    with _db_lock:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM auth_challenges WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM registered_devices WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM push_login_transactions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM auth_audit_events WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+    return True
+
+
+# Method aliases for parity across layers
+revoke_device = revoke_trusted_device
+load_push_login_transaction_by_id = get_push_login_transaction
+update_push_login_state = update_push_login_transaction_state
 
 
 

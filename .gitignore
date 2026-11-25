@@ -47,5 +47,10 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite*
+backend/backups/
+backend/exports/
+*data_seed*.sql
+migration_dump*.sql
 
 
