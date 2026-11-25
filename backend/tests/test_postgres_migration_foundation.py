@@ -186,6 +186,8 @@ def test_schema_migration_files_exist():
         "003_rollback.sql",
         "004_authenticated_role_permissions.sql",
         "004_rollback.sql",
+        "005_auth_challenges_token_hash_unique.sql",
+        "005_rollback.sql",
     ]
 
     for fname in required_schema_files:

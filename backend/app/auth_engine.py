@@ -236,7 +236,8 @@ def start_auth_transaction(
     try:
         save_transaction(transaction_record)
     except Exception as db_err:
-        logger.error(f"Database error saving transaction: {db_err}")
+        logger.error(f"Database error saving transaction: {db_err}", exc_info=True)
+        raise ValueError(f"Database error saving transaction: {str(db_err)}")
 
     record_audit(
         tx_id=tx_id,
@@ -337,7 +338,8 @@ async def confirm_email_gate(
         save_transaction(tx)
         save_challenge(challenge_entry)
     except Exception as db_err:
-        logger.error(f"Database error saving email confirmation: {db_err}")
+        logger.error(f"Database error saving email confirmation: {db_err}", exc_info=True)
+        raise ValueError(f"Database error saving email confirmation: {str(db_err)}")
 
     # Dispatch WhatsApp message via configured provider
     provider = get_whatsapp_provider()
@@ -563,7 +565,8 @@ def complete_mobile_registration_gate(
         save_challenge(challenge)
         save_transaction(tx)
     except Exception as db_err:
-        logger.error(f"Database error saving registration verification: {db_err}")
+        logger.error(f"Database error saving registration verification: {db_err}", exc_info=True)
+        raise ValueError(f"Database error saving registration verification: {str(db_err)}")
 
     record_audit(
         tx_id=challenge["transactionId"],
@@ -690,7 +693,8 @@ def complete_mobile_biometric_gate(
         save_challenge(challenge)
         save_transaction(tx)
     except Exception as db_err:
-        logger.error(f"Database error saving biometric verification: {db_err}")
+        logger.error(f"Database error saving biometric verification: {db_err}", exc_info=True)
+        raise ValueError(f"Database error saving biometric verification: {str(db_err)}")
 
     record_audit(
         tx_id=challenge["transactionId"],
@@ -778,7 +782,8 @@ def finalize_computer_session(
     try:
         save_transaction(tx)
     except Exception as db_err:
-        logger.error(f"Database error updating finalized session: {db_err}")
+        logger.error(f"Database error updating finalized session: {db_err}", exc_info=True)
+        raise ValueError(f"Database error updating finalized session: {str(db_err)}")
 
     record_audit(
         tx_id=transaction_id,

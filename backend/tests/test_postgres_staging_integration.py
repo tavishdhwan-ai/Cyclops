@@ -24,6 +24,8 @@ import os
 import uuid
 import time
 import json
+import secrets
+import hashlib
 import pytest
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
@@ -336,6 +338,62 @@ def test_push_login_transaction_engine(test_user_pair):
     loaded_updated = postgres_database.load_push_login_transaction_by_id(tx_id)
     assert loaded_updated["state"] == "AWAITING_PASSKEY"
     assert loaded_updated["webauthnChallenge"] == "random_challenge_str"
+
+
+def test_email_confirmation_and_challenge_persistence(test_user_pair):
+    """
+    Regression Test: Verifies email confirmation gate and challenge persistence
+    against PostgreSQL, validating that ON CONFLICT(token_hash) upsert succeeds.
+    """
+    user_a, _ = test_user_pair
+    tx_id = f"tx_email_conf_{uuid.uuid4().hex}"
+    raw_token = secrets.token_urlsafe(32)
+    token_h = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    # 1. Start transaction
+    session_record = {
+        "transactionId": tx_id,
+        "userId": user_a,
+        "email": f"{user_a}@sentinel.ai",
+        "phoneNumber": "+14155552671",
+        "emailVerified": False,
+        "mobileVerified": False,
+        "biometricVerified": False,
+        "state": "EMAIL_PENDING",
+        "expiresAt": time.time() + 900,
+    }
+    postgres_database.save_transaction(session_record)
+
+    # 2. Emulate email confirmation: save challenge
+    challenge_entry = {
+        "tokenHash": token_h,
+        "transactionId": tx_id,
+        "userId": user_a,
+        "challengeType": "whatsapp_mobile_link",
+        "webauthnChallenge": "challenge_rand_bytes",
+        "expiresAt": time.time() + 600,
+        "consumedAt": None,
+        "attempts": 0,
+    }
+    postgres_database.save_challenge(challenge_entry)
+
+    # 3. Read back challenge
+    loaded = postgres_database.load_challenge(token_h)
+    assert loaded is not None
+    assert loaded["transactionId"] == tx_id
+    assert loaded["tokenHash"] == token_h
+    assert loaded["consumedAt"] is None
+
+    # 4. Verify ON CONFLICT update works (e.g. consuming the challenge or updating attempts)
+    challenge_entry["consumedAt"] = time.time()
+    challenge_entry["attempts"] = 1
+    postgres_database.save_challenge(challenge_entry)
+
+    loaded_consumed = postgres_database.load_challenge(token_h)
+    assert loaded_consumed is not None
+    assert loaded_consumed["consumedAt"] is not None
+    assert loaded_consumed["attempts"] == 1
+
 
 
 # ==============================================================================

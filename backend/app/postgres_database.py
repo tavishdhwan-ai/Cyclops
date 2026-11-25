@@ -220,6 +220,21 @@ def save_challenge(challenge_data: Dict[str, Any]) -> None:
     consumed_dt = _ts_to_dt(challenge_data.get("consumedAt"))
     created_dt = _ts_to_dt(challenge_data.get("createdAt", time.time()))
 
+    raw_uid = challenge_data.get("userId") or challenge_data.get("user_id")
+    safe_uid = None
+    if raw_uid:
+        try:
+            safe_uid = str(uuid.UUID(str(raw_uid)))
+        except Exception:
+            safe_uid = None
+
+    token_h = challenge_data.get("tokenHash")
+    tx_id = challenge_data.get("transactionId")
+    c_type = challenge_data.get("challengeType", "whatsapp_mobile_link")
+    webauthn_c = challenge_data.get("webauthnChallenge")
+    attempts = challenge_data.get("attempts", 0)
+    max_attempts = challenge_data.get("maxAttempts", 3)
+
     query = """
     INSERT INTO public.auth_challenges (
         transaction_id, user_id, challenge_type,
@@ -232,23 +247,56 @@ def save_challenge(challenge_data: Dict[str, Any]) -> None:
     )
     ON CONFLICT(token_hash) DO UPDATE SET
         attempts = EXCLUDED.attempts,
-        consumed_at = EXCLUDED.consumed_at;
+        consumed_at = EXCLUDED.consumed_at,
+        webauthn_challenge = COALESCE(EXCLUDED.webauthn_challenge, public.auth_challenges.webauthn_challenge);
     """
     params = (
-        challenge_data.get("transactionId"),
-        challenge_data.get("userId"),
-        challenge_data.get("challengeType", "whatsapp_mobile_link"),
-        challenge_data.get("tokenHash"),
-        challenge_data.get("webauthnChallenge"),
-        challenge_data.get("attempts", 0),
-        challenge_data.get("maxAttempts", 3),
+        tx_id,
+        safe_uid,
+        c_type,
+        token_h,
+        webauthn_c,
+        attempts,
+        max_attempts,
         expires_dt,
         consumed_dt,
         created_dt,
     )
     with get_pg_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, params)
+            try:
+                cur.execute(query, params)
+            except Exception as e:
+                # If unique constraint on token_hash is not yet applied, fallback to manual update/insert
+                if "no unique or exclusion constraint" in str(e).lower() and "token_hash" in str(e).lower():
+                    conn.rollback()
+                    cur.execute(
+                        "SELECT id FROM public.auth_challenges WHERE token_hash = %s LIMIT 1;",
+                        (token_h,),
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        cur.execute(
+                            """
+                            UPDATE public.auth_challenges
+                            SET attempts = %s, consumed_at = %s, webauthn_challenge = COALESCE(%s, webauthn_challenge)
+                            WHERE token_hash = %s;
+                            """,
+                            (attempts, consumed_dt, webauthn_c, token_h),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO public.auth_challenges (
+                                transaction_id, user_id, challenge_type,
+                                token_hash, webauthn_challenge, attempts, max_attempts,
+                                expires_at, consumed_at, created_at
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                            """,
+                            params,
+                        )
+                else:
+                    raise
         conn.commit()
 
 

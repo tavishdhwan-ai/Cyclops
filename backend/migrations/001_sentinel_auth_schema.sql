@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS public.auth_challenges (
     transaction_id VARCHAR(128) NOT NULL,
     user_id UUID,
     challenge_type VARCHAR(32) NOT NULL, -- 'whatsapp_mobile_link', 'webauthn_assertion', 'email_otp'
-    token_hash VARCHAR(128) NOT NULL, -- SHA-256 hash of single-use challenge token
+    token_hash VARCHAR(128) UNIQUE NOT NULL, -- SHA-256 hash of single-use challenge token
     attempts INTEGER NOT NULL DEFAULT 0,
     max_attempts INTEGER NOT NULL DEFAULT 3,
     expires_at TIMESTAMPTZ NOT NULL,
