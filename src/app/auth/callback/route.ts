@@ -15,6 +15,13 @@ export async function GET(request: Request) {
   const tx = requestUrl.searchParams.get('tx');
   const sanitizedNext = sanitizeRedirectPath(next, '/dashboard');
 
+  console.info('[auth/callback] Processing callback', {
+    hasCode: Boolean(code),
+    hasTokenHash: Boolean(tokenHash),
+    hasType: Boolean(type),
+    hasTx: Boolean(tx),
+  });
+
   try {
     const supabase = await createServerSupabaseClient();
 
@@ -24,12 +31,13 @@ export async function GET(request: Request) {
       const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
       if (error) {
-        console.error('Error exchanging auth code:', error.message);
+        console.error('[auth/callback] Error exchanging auth code:', error.message);
       } else if (data.session?.user) {
         verifiedUser = {
           id: data.session.user.id,
           email: data.session.user.email || '',
         };
+        console.info('[auth/callback] Supabase PKCE code exchange succeeded');
       }
     }
 
@@ -40,39 +48,50 @@ export async function GET(request: Request) {
       });
 
       if (error) {
-        console.error('Error verifying OTP:', error.message);
+        console.error('[auth/callback] Error verifying OTP:', error.message);
       } else if (data.session?.user) {
         verifiedUser = {
           id: data.session.user.id,
           email: data.session.user.email || '',
         };
+        console.info('[auth/callback] Supabase OTP verification succeeded');
       }
     }
 
     const transactionId = tx || requestUrl.searchParams.get('transaction_id');
 
     if (transactionId) {
-      const confirmRes = await fetch(`${BACKEND_URL}/api/auth/confirm-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transactionId,
-          email: verifiedUser?.email || '',
-          userId: verifiedUser?.id,
-        }),
-      });
+      let confirmRes: Response | null = null;
+      try {
+        confirmRes = await fetch(`${BACKEND_URL}/api/auth/confirm-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transactionId,
+            email: verifiedUser?.email || '',
+            userId: verifiedUser?.id,
+          }),
+        });
+      } catch (fetchErr) {
+        console.error('[auth/callback] Failed to reach backend /api/auth/confirm-email:', fetchErr);
+      }
 
-      if (confirmRes.ok) {
+      if (confirmRes && confirmRes.ok) {
+        console.info('[auth/callback] Backend confirm-email succeeded. Redirecting to mobile_waiting.');
         const waitingUrl = new URL('/login', requestUrl.origin);
         waitingUrl.searchParams.set('step', 'mobile_waiting');
         waitingUrl.searchParams.set('tx', transactionId);
         waitingUrl.searchParams.set('next', sanitizedNext);
 
         return NextResponse.redirect(waitingUrl);
+      } else if (confirmRes) {
+        const errBody = await confirmRes.text().catch(() => '');
+        console.error('[auth/callback] Backend confirm-email returned error status:', confirmRes.status, errBody);
       }
     }
 
     if (!verifiedUser && !transactionId) {
+      console.warn('[auth/callback] Missing verifiedUser and transactionId, redirecting to invalid_link error.');
       return NextResponse.redirect(
         new URL('/login?error=invalid_link', requestUrl.origin)
       );
@@ -89,7 +108,7 @@ export async function GET(request: Request) {
 
     return NextResponse.redirect(destination);
   } catch (err) {
-    console.error('Authentication callback failed:', err);
+    console.error('[auth/callback] Unexpected callback exception:', err);
 
     return NextResponse.json(
       { error: 'Authentication callback failed' },

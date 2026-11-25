@@ -40,7 +40,7 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
       ? 'signup'
       : 'signin');
 
-  const { user, startSentinelAuth, completeSession } = useAuth();
+  const { user, sessionToken, startSentinelAuth, completeSession } = useAuth();
 
   // Mode: Sign In vs Sign Up
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>(initialMode);
@@ -274,16 +274,28 @@ export function LoginFormContent({ defaultMode }: { defaultMode?: 'signin' | 'si
     }
   };
 
-  // If already authenticated, redirect
+  // If already authenticated with completed Sentinel session, redirect away from login
   useEffect(() => {
-    if (user) {
+    // Never interrupt an active verification flow (mobile waiting, push waiting, email sent, completing)
+    if (
+      urlStep === 'mobile_waiting' ||
+      flowStep === 'mobile_waiting' ||
+      flowStep === 'push_waiting' ||
+      flowStep === 'completing' ||
+      flowStep === 'email_sent'
+    ) {
+      return;
+    }
+
+    // Only redirect if the user has an authoritative Sentinel AI session token, NOT just an initial Supabase cookie
+    if (user && sessionToken) {
       if (user.onboardingCompleted === false) {
         router.push('/onboarding');
       } else {
         router.push(nextDestination);
       }
     }
-  }, [user, router, nextDestination]);
+  }, [user, sessionToken, flowStep, urlStep, router, nextDestination]);
 
   // Handle Initial Form Submission
   const handleSubmit = async (e: React.FormEvent) => {

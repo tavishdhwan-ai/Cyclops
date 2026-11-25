@@ -7,6 +7,7 @@ Cross-Device Synchronization & Atomic Challenge Consumption.
 """
 import os
 import time
+import uuid
 import hashlib
 import secrets
 import threading
@@ -304,7 +305,7 @@ async def confirm_email_gate(
             if existing_user and existing_user.get("userId"):
                 user_id = existing_user["userId"]
             else:
-                user_id = f"usr_{secrets.token_hex(8)}"
+                user_id = str(uuid.uuid4())
         tx["userId"] = user_id
         tx["state"] = STATE_EMAIL_VERIFIED
 
@@ -414,6 +415,12 @@ def validate_mobile_challenge_access(
     with _lock:
         challenge = _CHALLENGES.get(token_h)
         if not challenge:
+            db_challenge = load_challenge(token_h)
+            if db_challenge:
+                _CHALLENGES[token_h] = db_challenge
+                challenge = db_challenge
+
+        if not challenge:
             return {"valid": False, "error": "Invalid or expired verification link."}
 
         if challenge["consumedAt"] is not None:
@@ -423,6 +430,12 @@ def validate_mobile_challenge_access(
             return {"valid": False, "error": "This verification link has expired."}
 
         tx = _TRANSACTIONS.get(challenge["transactionId"])
+        if not tx:
+            db_tx = load_transaction(challenge["transactionId"])
+            if db_tx:
+                _TRANSACTIONS[challenge["transactionId"]] = db_tx
+                tx = db_tx
+
         if not tx or tx["expiresAt"] < time.time():
             return {"valid": False, "error": "Associated session has expired."}
 
@@ -507,6 +520,12 @@ def complete_mobile_registration_gate(
     with _lock:
         challenge = _CHALLENGES.get(token_h)
         if not challenge:
+            db_challenge = load_challenge(token_h)
+            if db_challenge:
+                _CHALLENGES[token_h] = db_challenge
+                challenge = db_challenge
+
+        if not challenge:
             raise ValueError("Challenge token not found or already purged.")
 
         if challenge["consumedAt"] is not None:
@@ -516,6 +535,12 @@ def complete_mobile_registration_gate(
             raise ValueError("WebAuthn registration challenge expired.")
 
         tx = _TRANSACTIONS.get(challenge["transactionId"])
+        if not tx:
+            db_tx = load_transaction(challenge["transactionId"])
+            if db_tx:
+                _TRANSACTIONS[challenge["transactionId"]] = db_tx
+                tx = db_tx
+
         if not tx:
             raise ValueError("Associated authentication transaction not found.")
 
@@ -605,6 +630,12 @@ def complete_mobile_biometric_gate(
     with _lock:
         challenge = _CHALLENGES.get(token_h)
         if not challenge:
+            db_challenge = load_challenge(token_h)
+            if db_challenge:
+                _CHALLENGES[token_h] = db_challenge
+                challenge = db_challenge
+
+        if not challenge:
             raise ValueError("Challenge token not found or already purged.")
 
         if challenge["consumedAt"] is not None:
@@ -614,6 +645,12 @@ def complete_mobile_biometric_gate(
             raise ValueError("WebAuthn challenge expired.")
 
         tx = _TRANSACTIONS.get(challenge["transactionId"])
+        if not tx:
+            db_tx = load_transaction(challenge["transactionId"])
+            if db_tx:
+                _TRANSACTIONS[challenge["transactionId"]] = db_tx
+                tx = db_tx
+
         if not tx:
             raise ValueError("Associated authentication transaction not found.")
 

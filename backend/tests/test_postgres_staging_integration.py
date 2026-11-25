@@ -26,11 +26,12 @@ import time
 import json
 import secrets
 import hashlib
+import asyncio
 import pytest
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from app import postgres_database
+from app import postgres_database, auth_engine, database
 
 # Staging Database URL resolution
 STAGING_URL = os.getenv(
@@ -52,6 +53,34 @@ pytestmark = pytest.mark.skipif(
         "Set SENTINEL_STAGING_DATABASE_URL to execute real PostgreSQL integration tests."
     ),
 )
+
+
+@pytest.fixture(autouse=True, scope="module")
+def enable_postgres_for_staging():
+    """
+    Enforces PostgreSQL persistence for all staging integration tests.
+    Sets SENTINEL_DB_BACKEND='postgres' and points SENTINEL_DATABASE_URL
+    to the verified staging PostgreSQL database so that all calls to
+    app.database and auth_engine persist to PostgreSQL rather than SQLite.
+    """
+    old_backend = os.environ.get("SENTINEL_DB_BACKEND")
+    old_url = os.environ.get("SENTINEL_DATABASE_URL")
+
+    os.environ["SENTINEL_DB_BACKEND"] = "postgres"
+    if STAGING_URL:
+        os.environ["SENTINEL_DATABASE_URL"] = STAGING_URL
+
+    yield
+
+    if old_backend is not None:
+        os.environ["SENTINEL_DB_BACKEND"] = old_backend
+    else:
+        os.environ.pop("SENTINEL_DB_BACKEND", None)
+
+    if old_url is not None:
+        os.environ["SENTINEL_DATABASE_URL"] = old_url
+    else:
+        os.environ.pop("SENTINEL_DATABASE_URL", None)
 
 
 @pytest.fixture(scope="module")
@@ -518,3 +547,125 @@ def test_row_level_security_policy_enforcement(test_user_pair):
                         pytest.skip("PostgreSQL instance does not have Supabase 'authenticated' role installed.")
                     else:
                         raise
+
+
+# ==============================================================================
+# 9. End-to-End Account Creation & 2FA Workflow Tests
+# ==============================================================================
+
+def test_e2e_account_creation_and_auth_workflow():
+    """
+    End-to-End Regression Test:
+    Simulates the entire account creation and 2FA authentication flow against PostgreSQL:
+    1. Transaction creation (Gate 1 init).
+    2. Email confirmation with a brand-new user UUID not previously in user_profiles.
+    3. Verifies baseline user profile upsert and challenge persistence in PostgreSQL.
+    4. Clears in-memory challenge/transaction caches to simulate cross-process / multi-worker execution.
+    5. Validates mobile challenge access using database fallback.
+    6. Completes mobile biometric gate and finalizes computer session from database.
+    """
+    new_user_id = str(uuid.uuid4())
+    test_email = f"signup_{uuid.uuid4().hex[:8]}@sentinel.ai"
+    test_phone = "+14155552671"
+    tx_id = f"tx_e2e_{uuid.uuid4().hex}"
+
+    try:
+        # Step 0: Ensure PostgreSQL persistence is actively routed
+        assert database.use_postgres() is True, "PostgreSQL backend must be active for staging e2e test"
+
+        # Step 1: Start auth transaction
+        tx_res = auth_engine.start_auth_transaction(
+            email=test_email,
+            phone_number=test_phone,
+            transaction_id=tx_id,
+            user_agent="Mozilla/5.0 Desktop Browser",
+            ip_address="127.0.0.1",
+        )
+        assert tx_res["transactionId"] == tx_id
+        assert tx_res["state"] == "EMAIL_PENDING"
+
+        # Verify transaction persisted to PostgreSQL
+        pg_tx = postgres_database.load_transaction(tx_id)
+        assert pg_tx is not None
+        assert pg_tx["email"] == test_email
+
+        # Step 2: Email verification confirmation (Gate 1 completion)
+        conf_res = asyncio.run(
+            auth_engine.confirm_email_gate(
+                transaction_id=tx_id,
+                user_id=new_user_id,
+                override_app_url="https://cyclops.app",
+            )
+        )
+        assert conf_res["transactionId"] == tx_id
+        assert conf_res["state"] == "MOBILE_CHALLENGE_ISSUED"
+        assert conf_res["emailVerified"] is True
+        mobile_token = conf_res.get("mobileChallengeToken") or conf_res["mobileVerificationUrl"].split("?t=")[-1]
+        assert mobile_token is not None
+
+        # Verify user_profiles record was created and auth_sessions has valid user_id
+        prof = postgres_database.get_user_profile_by_user_id(new_user_id)
+        assert prof is not None
+        assert prof["email"] == test_email
+
+        pg_tx_after_email = postgres_database.load_transaction(tx_id)
+        assert pg_tx_after_email is not None
+        assert pg_tx_after_email["userId"] == new_user_id
+        assert pg_tx_after_email["emailVerified"] is True
+
+        token_h = hashlib.sha256(mobile_token.encode("utf-8")).hexdigest()
+        pg_challenge = postgres_database.load_challenge(token_h)
+        assert pg_challenge is not None
+        assert pg_challenge["transactionId"] == tx_id
+        assert pg_challenge["userId"] == new_user_id
+
+        # Step 3: Simulate cross-process / multi-worker execution by purging in-memory caches
+        with auth_engine._lock:
+            auth_engine._CHALLENGES.clear()
+            auth_engine._TRANSACTIONS.clear()
+
+        # Step 4: Validate mobile access from mobile user agent using DB fallback
+        access_res = auth_engine.validate_mobile_challenge_access(
+            mobile_token=mobile_token,
+            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        )
+        assert access_res.get("valid") is True, f"Mobile access validation failed: {access_res}"
+
+        # Step 5: Simulate mobile biometric completion and session establishment
+        now = time.time()
+        pg_challenge["consumedAt"] = now
+        postgres_database.save_challenge(pg_challenge)
+
+        pg_tx_after_email["mobileVerified"] = True
+        pg_tx_after_email["biometricVerified"] = True
+        pg_tx_after_email["state"] = auth_engine.STATE_AUTHENTICATED
+        postgres_database.save_transaction(pg_tx_after_email)
+
+        # Clear in-memory cache again
+        with auth_engine._lock:
+            auth_engine._TRANSACTIONS.clear()
+
+        # Step 6: Finalize computer session (loads from PostgreSQL)
+        final_res = auth_engine.finalize_computer_session(
+            transaction_id=tx_id,
+            user_agent="Mozilla/5.0 Desktop Browser",
+            ip_address="127.0.0.1",
+        )
+        assert final_res["success"] is True
+        assert "sessionToken" in final_res
+        assert final_res["user"]["id"] == new_user_id
+        assert final_res["user"]["email"] == test_email
+
+    finally:
+        # Cleanup test records
+        try:
+            with postgres_database.get_pg_connection(STAGING_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM public.auth_challenges WHERE transaction_id = %s;", (tx_id,))
+                    cur.execute("DELETE FROM public.auth_sessions WHERE transaction_id = %s;", (tx_id,))
+                    cur.execute("DELETE FROM public.auth_audit_events WHERE transaction_id = %s;", (tx_id,))
+                    cur.execute("DELETE FROM public.user_profiles WHERE user_id = %s;", (new_user_id,))
+                conn.commit()
+        except Exception:
+            pass
+

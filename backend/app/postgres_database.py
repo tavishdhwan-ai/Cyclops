@@ -91,7 +91,24 @@ def _dt_to_ts(dt: Any) -> Optional[float]:
         clean = str(dt).replace("Z", "+00:00")
         return datetime.fromisoformat(clean).timestamp()
     except Exception:
-        return time.time()
+        return None
+
+
+def normalize_uuid(uid: Any) -> Optional[str]:
+    """
+    Converts a user_id or identifier into a strictly valid UUID string.
+    Deterministically maps legacy string IDs (e.g. 'usr_12345') to valid UUIDs
+    without throwing InvalidTextRepresentation errors in PostgreSQL.
+    """
+    if not uid:
+        return None
+    raw = str(uid).strip()
+    if not raw:
+        return None
+    try:
+        return str(uuid.UUID(raw))
+    except (ValueError, AttributeError, TypeError):
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, raw))
 
 
 # ==============================================================================
@@ -150,16 +167,20 @@ def save_transaction(tx_data: Dict[str, Any]) -> None:
     """
     with get_pg_connection() as conn:
         with conn.cursor() as cur:
-            # Defensively check foreign key constraint: user_id must be a valid UUID that exists in user_profiles
-            safe_user_id = None
-            if user_id:
-                try:
-                    parsed_uuid = str(uuid.UUID(str(user_id)))
-                    cur.execute("SELECT 1 FROM public.user_profiles WHERE user_id = %s LIMIT 1;", (parsed_uuid,))
-                    if cur.fetchone():
-                        safe_user_id = parsed_uuid
-                except Exception:
-                    safe_user_id = None
+            # Safely normalize user_id to valid UUID and ensure foreign key in user_profiles is satisfied
+            safe_user_id = normalize_uuid(user_id)
+            if safe_user_id:
+                cur.execute(
+                    """
+                    INSERT INTO public.user_profiles (user_id, email, phone_number, created_at, updated_at)
+                    VALUES (%s, %s, %s, NOW(), NOW())
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        email = COALESCE(NULLIF(EXCLUDED.email, ''), public.user_profiles.email),
+                        phone_number = COALESCE(NULLIF(EXCLUDED.phone_number, ''), public.user_profiles.phone_number),
+                        updated_at = NOW();
+                    """,
+                    (safe_user_id, email or "", phone or ""),
+                )
 
             params = (
                 tx_id,
@@ -221,12 +242,7 @@ def save_challenge(challenge_data: Dict[str, Any]) -> None:
     created_dt = _ts_to_dt(challenge_data.get("createdAt", time.time()))
 
     raw_uid = challenge_data.get("userId") or challenge_data.get("user_id")
-    safe_uid = None
-    if raw_uid:
-        try:
-            safe_uid = str(uuid.UUID(str(raw_uid)))
-        except Exception:
-            safe_uid = None
+    safe_uid = normalize_uuid(raw_uid)
 
     token_h = challenge_data.get("tokenHash")
     tx_id = challenge_data.get("transactionId")
@@ -336,6 +352,9 @@ def record_db_audit(audit_entry: Optional[Dict[str, Any]] = None, **kwargs) -> N
         except Exception:
             details = {}
 
+    raw_uid = entry.get("user_id", entry.get("userId"))
+    safe_uid = normalize_uuid(raw_uid)
+
     query = """
     INSERT INTO public.auth_audit_events (
         transaction_id, user_id, event_type,
@@ -344,7 +363,7 @@ def record_db_audit(audit_entry: Optional[Dict[str, Any]] = None, **kwargs) -> N
     """
     params = (
         entry.get("transaction_id", entry.get("transactionId")),
-        entry.get("user_id", entry.get("userId")),
+        safe_uid,
         entry.get("event_type", entry.get("eventType")),
         entry.get("status"),
         json.dumps(details),
@@ -364,6 +383,9 @@ def record_db_audit(audit_entry: Optional[Dict[str, Any]] = None, **kwargs) -> N
 
 def save_push_subscription(sub_data: Dict[str, Any]) -> None:
     """Inserts or updates a browser push subscription for a user."""
+    safe_uid = normalize_uuid(sub_data.get("user_id") or sub_data.get("userId"))
+    if not safe_uid:
+        return
     now_dt = _ts_to_dt(time.time())
     query = """
     INSERT INTO public.push_subscriptions (
@@ -378,7 +400,7 @@ def save_push_subscription(sub_data: Dict[str, Any]) -> None:
         updated_at = EXCLUDED.updated_at;
     """
     params = (
-        sub_data["user_id"],
+        safe_uid,
         sub_data["endpoint"],
         sub_data["p256dh"],
         sub_data["auth"],
@@ -395,10 +417,13 @@ def save_push_subscription(sub_data: Dict[str, Any]) -> None:
 
 def get_push_subscriptions_for_user(user_id: str) -> List[Dict[str, Any]]:
     """Retrieves all active push subscriptions for a user (tenant-isolated)."""
+    safe_uid = normalize_uuid(user_id)
+    if not safe_uid:
+        return []
     query = "SELECT * FROM public.push_subscriptions WHERE user_id = %s;"
     with get_pg_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (user_id,))
+            cur.execute(query, (safe_uid,))
             rows = cur.fetchall()
             return [
                 {
@@ -463,10 +488,13 @@ def register_device(device_data: Dict[str, Any]) -> None:
 
 def get_devices_for_user(user_id: str) -> List[Dict[str, Any]]:
     """Retrieves all registered devices for a user."""
+    safe_uid = normalize_uuid(user_id)
+    if not safe_uid:
+        return []
     query = "SELECT * FROM public.registered_devices WHERE user_id = %s AND is_active = TRUE;"
     with get_pg_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (user_id,))
+            cur.execute(query, (safe_uid,))
             rows = cur.fetchall()
             return [
                 {
@@ -489,6 +517,9 @@ def get_devices_for_user(user_id: str) -> List[Dict[str, Any]]:
 
 def get_active_passkeys_for_user(user_id: str) -> List[Dict[str, Any]]:
     """Retrieves all active WebAuthn passkey credentials for a user."""
+    safe_uid = normalize_uuid(user_id)
+    if not safe_uid:
+        return []
     query = """
     SELECT * FROM public.registered_devices
     WHERE user_id = %s AND is_active = TRUE AND credential_id IS NOT NULL AND public_key IS NOT NULL
@@ -496,7 +527,7 @@ def get_active_passkeys_for_user(user_id: str) -> List[Dict[str, Any]]:
     """
     with get_pg_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (user_id,))
+            cur.execute(query, (safe_uid,))
             rows = cur.fetchall()
             return [
                 {
@@ -554,6 +585,7 @@ def save_verified_passkey_device(
     **kwargs,
 ) -> Dict[str, Any]:
     """Saves a cryptographically verified WebAuthn credential to registered_devices."""
+    safe_uid = normalize_uuid(user_id)
     final_device_id = device_id or f"dev_{secrets.token_hex(8)}"
     now_dt = _ts_to_dt(time.time())
 
@@ -566,6 +598,17 @@ def save_verified_passkey_device(
 
     with get_pg_connection() as conn:
         with conn.cursor() as cur:
+            # Ensure base user profile exists
+            if safe_uid:
+                cur.execute(
+                    """
+                    INSERT INTO public.user_profiles (user_id, email, created_at, updated_at)
+                    VALUES (%s, '', NOW(), NOW())
+                    ON CONFLICT(user_id) DO NOTHING;
+                    """,
+                    (safe_uid,),
+                )
+
             # Check if device_id exists
             cur.execute("SELECT id FROM public.registered_devices WHERE device_id = %s LIMIT 1;", (final_device_id,))
             existing = cur.fetchone()
@@ -578,7 +621,7 @@ def save_verified_passkey_device(
                         device_type = %s
                     WHERE device_id = %s;
                     """,
-                    (user_id, credential_id, public_key, sign_count, now_dt, device_name, platform, actual_device_type, final_device_id),
+                    (safe_uid, credential_id, public_key, sign_count, now_dt, device_name, platform, actual_device_type, final_device_id),
                 )
             else:
                 cur.execute(
@@ -597,7 +640,7 @@ def save_verified_passkey_device(
                     """,
                     (
                         final_device_id,
-                        user_id,
+                        safe_uid,
                         device_name,
                         actual_device_type,
                         platform,
@@ -613,7 +656,7 @@ def save_verified_passkey_device(
     return {
         "deviceId": final_device_id,
         "credentialId": credential_id,
-        "userId": user_id,
+        "userId": safe_uid or user_id,
         "signCount": sign_count,
     }
 
@@ -638,10 +681,13 @@ def update_device_sign_count(credential_id: str, new_sign_count: int) -> None:
 
 def get_user_profile_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
     """Retrieves full user profile by user_id from PostgreSQL."""
+    safe_uid = normalize_uuid(user_id)
+    if not safe_uid:
+        return None
     query = "SELECT * FROM public.user_profiles WHERE user_id = %s LIMIT 1;"
     with get_pg_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (user_id,))
+            cur.execute(query, (safe_uid,))
             r = cur.fetchone()
             if not r:
                 return None
@@ -713,8 +759,11 @@ def check_username_available(username: str, exclude_user_id: Optional[str] = Non
 
 def save_or_update_user_profile(user_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
     """Upserts full user profile into user_profiles in PostgreSQL."""
+    safe_uid = normalize_uuid(user_id)
+    if not safe_uid:
+        raise ValueError(f"Invalid user_id for profile: {user_id}")
     now_dt = _ts_to_dt(time.time())
-    existing = get_user_profile_by_user_id(user_id)
+    existing = get_user_profile_by_user_id(safe_uid)
 
     email = profile_data.get("email") or (existing.get("email") if existing else "")
     phone = profile_data.get("phoneNumber") or (existing.get("phoneNumber") if existing else "")
@@ -766,7 +815,7 @@ def save_or_update_user_profile(user_id: str, profile_data: Dict[str, Any]) -> D
         updated_at = EXCLUDED.updated_at;
     """
     params = (
-        user_id,
+        safe_uid,
         email,
         phone,
         display_name,
@@ -790,7 +839,7 @@ def save_or_update_user_profile(user_id: str, profile_data: Dict[str, Any]) -> D
             cur.execute(query, params)
         conn.commit()
 
-    return get_user_profile_by_user_id(user_id) or {}
+    return get_user_profile_by_user_id(safe_uid) or {}
 
 
 # ==============================================================================
