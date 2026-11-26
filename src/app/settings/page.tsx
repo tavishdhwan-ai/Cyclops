@@ -6,6 +6,7 @@ import { useDemoContext } from '../../context/DemoContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
+import { AppearanceSection } from '../../components/settings/AppearanceSection';
 import { COUNTRIES, LANGUAGES, COMMON_TIMEZONES } from '../../lib/profileConstants';
 import {
   Settings,
@@ -101,7 +102,7 @@ export default function SettingsPage() {
   const { user, profile, updateProfile, signOut, deleteAccount, sessionToken, isSigningOut } = useAuth();
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'activity' | 'privacy'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'appearance' | 'security' | 'activity' | 'privacy'>('profile');
 
   // 1. Profile & Identity Form State
   const [fullName, setFullName] = useState(profile.fullName || profile.displayName || user?.displayName || '');
@@ -572,6 +573,7 @@ export default function SettingsPage() {
       <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 overflow-x-auto pb-px">
         {[
           { id: 'profile', label: 'Profile & Identity', icon: User },
+          { id: 'appearance', label: 'Appearance', icon: Eye },
           { id: 'security', label: 'Security & Devices', icon: Shield },
           { id: 'activity', label: 'Recent Activity', icon: History },
           { id: 'privacy', label: 'Preferences & Privacy', icon: Lock },
@@ -595,6 +597,15 @@ export default function SettingsPage() {
           );
         })}
       </div>
+
+      {/* ===================================================================== */}
+      {/* TAB: Appearance */}
+      {/* ===================================================================== */}
+      {activeTab === 'appearance' && (
+        <Card className="space-y-6" interactive={false}>
+          <AppearanceSection />
+        </Card>
+      )}
 
       {/* ===================================================================== */}
       {/* TAB 1: Profile & Identity */}
@@ -1259,45 +1270,9 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          {/* Theme */}
-          <Card className="space-y-4" interactive={false}>
-            <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-3">
-              <Eye className="h-4 w-4 text-zinc-500" />
-              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Interface Theme</h2>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">Appearance</p>
-                <p className="text-[11px] text-zinc-500">Choose between dark mode and light mode.</p>
-              </div>
-              <div className="flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-1">
-                <button
-                  type="button"
-                  onClick={() => setTheme('light')}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium cursor-pointer ${
-                    theme === 'light'
-                      ? 'bg-white text-zinc-900 shadow-xs font-semibold'
-                      : 'text-zinc-500 hover:text-zinc-900'
-                  }`}
-                >
-                  <Sun className="h-3.5 w-3.5" />
-                  <span>Light</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTheme('dark')}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium cursor-pointer ${
-                    theme === 'dark'
-                      ? 'bg-zinc-800 text-white shadow-xs font-semibold'
-                      : 'text-zinc-500 hover:text-white'
-                  }`}
-                >
-                  <Moon className="h-3.5 w-3.5" />
-                  <span>Dark</span>
-                </button>
-              </div>
-            </div>
+          {/* Appearance */}
+          <Card className="space-y-6" interactive={false}>
+            <AppearanceSection />
           </Card>
 
           {/* Data Privacy & Cache */}

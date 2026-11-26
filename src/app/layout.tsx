@@ -31,11 +31,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               (function() {
                 try {
                   var saved = localStorage.getItem('cyclops_theme') || localStorage.getItem('sentinel_theme');
-                  var supportDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                  if (saved === 'dark' || (!saved && supportDark)) {
-                    document.documentElement.classList.add('dark');
+                  var valid = ['light', 'soft-light', 'soft-dark', 'dark'];
+                  var theme = (saved && valid.indexOf(saved) !== -1) ? saved : null;
+                  if (!theme) {
+                    var supportDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    theme = supportDark ? 'dark' : 'light';
+                  }
+                  var root = document.documentElement;
+                  root.setAttribute('data-theme', theme);
+                  root.classList.remove('theme-light', 'theme-soft-light', 'theme-soft-dark', 'theme-dark');
+                  root.classList.add('theme-' + theme);
+                  if (theme === 'dark' || theme === 'soft-dark') {
+                    root.classList.add('dark');
+                    root.style.colorScheme = 'dark';
                   } else {
-                    document.documentElement.classList.remove('dark');
+                    root.classList.remove('dark');
+                    root.style.colorScheme = 'light';
                   }
                 } catch (e) {}
               })();

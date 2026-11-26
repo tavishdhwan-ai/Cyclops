@@ -2,21 +2,93 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
+/* --------------------------------------------------------------------------
+   1. Theme Semantic Variables & Colour Palettes
+   -------------------------------------------------------------------------- */
+
+/* Light Theme (Default) */
+:root,
+[data-theme="light"],
+html.theme-light {
+  color-scheme: light;
   --background: #fafafa;
   --foreground: #09090b;
   --card: #ffffff;
   --card-border: #e4e4e7;
   --muted: #71717a;
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e4e4e7;
 }
 
-.dark {
+/* Soft Light Theme - Warm, matte stone-grey appearance */
+[data-theme="soft-light"],
+html.theme-soft-light {
+  color-scheme: light;
+  --background: #DFDDD6;
+  --foreground: #34332F;
+  --card: #E8E6DF;
+  --card-border: #C5C2B9;
+  --muted: #55544F;
+  --sidebar-bg: #D2D0C9;
+  --sidebar-border: #C5C2B9;
+
+  /* Tailwind Zinc Palette Overrides for Soft Light */
+  --color-zinc-50: #DFDDD6;
+  --color-zinc-100: #D2D0C9;
+  --color-zinc-200: #C5C2B9;
+  --color-zinc-300: #B8B5AB;
+  --color-zinc-400: #75746E;
+  --color-zinc-500: #55544F;
+  --color-zinc-600: #45443F;
+  --color-zinc-700: #3E3D38;
+  --color-zinc-800: #34332F;
+  --color-zinc-900: #292825;
+  --color-zinc-950: #1F1E1C;
+  --color-white: #E8E6DF;
+}
+
+/* Soft Dark Theme - Sophisticated charcoal-grey appearance */
+[data-theme="soft-dark"],
+html.theme-soft-dark {
+  color-scheme: dark;
+  --background: #22252B;
+  --foreground: #DDE1E7;
+  --card: #2C3037;
+  --card-border: #3B4049;
+  --muted: #A9B0BB;
+  --sidebar-bg: #1C1F24;
+  --sidebar-border: #3B4049;
+
+  /* Tailwind Zinc Palette Overrides for Soft Dark */
+  --color-zinc-950: #22252B;
+  --color-zinc-900: #2C3037;
+  --color-zinc-800: #1C1F24;
+  --color-zinc-700: #484E59;
+  --color-zinc-600: #565D6A;
+  --color-zinc-500: #7E8694;
+  --color-zinc-400: #A9B0BB;
+  --color-zinc-300: #BFC5CE;
+  --color-zinc-200: #CDD2DA;
+  --color-zinc-100: #DDE1E7;
+  --color-zinc-50: #EBEEF2;
+  --color-white: #DDE1E7;
+}
+
+/* Dark Theme - Deep high-contrast obsidian */
+.dark:not([data-theme="soft-dark"]) {
+  color-scheme: dark;
   --background: #09090b;
   --foreground: #f4f4f5;
   --card: #18181b;
   --card-border: #27272a;
   --muted: #a1a1aa;
+  --sidebar-bg: #18181b;
+  --sidebar-border: #27272a;
 }
+
+/* --------------------------------------------------------------------------
+   2. Layout & Hardcoded Utility Compatibility
+   -------------------------------------------------------------------------- */
 
 body {
   background-color: var(--background);
@@ -38,7 +110,50 @@ body {
   transition: none !important;
 }
 
-/* Custom interactive hover class for cards and table rows */
+/* Layout overrides for Soft Light */
+[data-theme="soft-light"] aside {
+  background-color: #D2D0C9 !important;
+  border-color: #C5C2B9 !important;
+}
+
+[data-theme="soft-light"] header {
+  background-color: rgba(210, 208, 201, 0.92) !important;
+  border-color: #C5C2B9 !important;
+}
+
+[data-theme="soft-light"] .bg-\[\#FAFAFA\] { background-color: #DFDDD6 !important; }
+[data-theme="soft-light"] .bg-\[\#FFFFFF\] { background-color: #E8E6DF !important; }
+[data-theme="soft-light"] .bg-\[\#E5E5E5\] { background-color: #D2D0C9 !important; }
+[data-theme="soft-light"] .text-\[\#111111\] { color: #34332F !important; }
+[data-theme="soft-light"] .text-\[\#737373\] { color: #55544F !important; }
+[data-theme="soft-light"] .border-\[\#E5E5E5\] { border-color: #C5C2B9 !important; }
+[data-theme="soft-light"] .border-\[\#111111\] { border-color: #34332F !important; }
+
+/* Layout overrides for Soft Dark */
+[data-theme="soft-dark"] aside {
+  background-color: #1C1F24 !important;
+  border-color: #3B4049 !important;
+}
+
+[data-theme="soft-dark"] header {
+  background-color: rgba(28, 31, 36, 0.92) !important;
+  border-color: #3B4049 !important;
+}
+
+[data-theme="soft-dark"] .bg-\[\#111111\] { background-color: #1C1F24 !important; }
+[data-theme="soft-dark"] .bg-\[\#262626\] { background-color: #2C3037 !important; }
+[data-theme="soft-dark"] .bg-\[\#FAFAFA\] { background-color: #22252B !important; }
+[data-theme="soft-dark"] .bg-\[\#FFFFFF\] { background-color: #2C3037 !important; }
+[data-theme="soft-dark"] .text-\[\#FFFFFF\] { color: #DDE1E7 !important; }
+[data-theme="soft-dark"] .text-\[\#111111\] { color: #DDE1E7 !important; }
+[data-theme="soft-dark"] .text-\[\#737373\] { color: #A9B0BB !important; }
+[data-theme="soft-dark"] .border-\[\#262626\] { border-color: #3B4049 !important; }
+[data-theme="soft-dark"] .border-\[\#E5E5E5\] { border-color: #3B4049 !important; }
+
+/* --------------------------------------------------------------------------
+   3. Interactive Cards & Elevated Surfaces
+   -------------------------------------------------------------------------- */
+
 .hover-card {
   transition-property: transform, box-shadow, border-color, background-color;
   transition-duration: 260ms;
@@ -58,6 +173,22 @@ body {
   transition-duration: 180ms;
 }
 
+[data-theme="soft-light"] .hover-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px -2px rgba(52, 51, 47, 0.12), 0 0 0 1px rgba(197, 194, 185, 0.4);
+  transition-duration: 180ms;
+}
+
+[data-theme="soft-dark"] .hover-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(59, 64, 73, 0.5);
+  transition-duration: 180ms;
+}
+
+/* --------------------------------------------------------------------------
+   4. Motion & Accessibility Controls
+   -------------------------------------------------------------------------- */
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -76,7 +207,10 @@ body {
   }
 }
 
-/* Custom subtle scrollbar */
+/* --------------------------------------------------------------------------
+   5. Custom Scrollbars
+   -------------------------------------------------------------------------- */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -95,10 +229,26 @@ body {
   background: #27272a;
 }
 
+[data-theme="soft-light"] ::-webkit-scrollbar-thumb {
+  background: #C5C2B9;
+}
+
+[data-theme="soft-dark"] ::-webkit-scrollbar-thumb {
+  background: #3B4049;
+}
+
 ::-webkit-scrollbar-thumb:hover {
   background: #a1a1aa;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
+}
+
+[data-theme="soft-light"] ::-webkit-scrollbar-thumb:hover {
+  background: #A39F94;
+}
+
+[data-theme="soft-dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #565D6A;
 }
