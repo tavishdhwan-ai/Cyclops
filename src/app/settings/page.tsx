@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useDemoContext } from '../../context/DemoContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { AppearanceSection } from '../../components/settings/AppearanceSection';
+import { ConnectedAccountsSection } from '../../components/settings/ConnectedAccountsSection';
 import { COUNTRIES, LANGUAGES, COMMON_TIMEZONES } from '../../lib/profileConstants';
 import {
   Settings,
@@ -14,6 +16,7 @@ import {
   Shield,
   Lock,
   Eye,
+  Mail,
   Save,
   Trash2,
   Sun,
@@ -96,13 +99,42 @@ interface SecurityPreferences {
   notifySecurityChanges: boolean;
 }
 
-export default function SettingsPage() {
+function SettingsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { settings, updateSettings, showToast } = useDemoContext();
   const { theme, setTheme } = useTheme();
   const { user, profile, updateProfile, signOut, deleteAccount, sessionToken, isSigningOut } = useAuth();
 
+  const tabParam = searchParams.get('tab');
+  const gmailStatusParam = searchParams.get('gmail_status');
+
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'profile' | 'appearance' | 'security' | 'activity' | 'privacy'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'integrations' | 'appearance' | 'security' | 'activity' | 'privacy'>(() => {
+    if (
+      tabParam === 'integrations' ||
+      tabParam === 'appearance' ||
+      tabParam === 'security' ||
+      tabParam === 'activity' ||
+      tabParam === 'privacy'
+    ) {
+      return tabParam;
+    }
+    return gmailStatusParam ? 'integrations' : 'profile';
+  });
+
+  useEffect(() => {
+    if (
+      tabParam === 'profile' ||
+      tabParam === 'integrations' ||
+      tabParam === 'appearance' ||
+      tabParam === 'security' ||
+      tabParam === 'activity' ||
+      tabParam === 'privacy'
+    ) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
 
   // 1. Profile & Identity Form State
   const [fullName, setFullName] = useState(profile.fullName || profile.displayName || user?.displayName || '');
@@ -573,6 +605,7 @@ export default function SettingsPage() {
       <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 overflow-x-auto pb-px">
         {[
           { id: 'profile', label: 'Profile & Identity', icon: User },
+          { id: 'integrations', label: 'Connected Accounts', icon: Mail },
           { id: 'appearance', label: 'Appearance', icon: Eye },
           { id: 'security', label: 'Security & Devices', icon: Shield },
           { id: 'activity', label: 'Recent Activity', icon: History },
@@ -597,6 +630,16 @@ export default function SettingsPage() {
           );
         })}
       </div>
+
+      {/* ===================================================================== */}
+      {/* TAB: Connected Accounts (Gmail Integration) */}
+      {/* ===================================================================== */}
+      {activeTab === 'integrations' && (
+        <ConnectedAccountsSection
+          callbackStatus={gmailStatusParam}
+          onClearCallbackParams={() => router.replace('/settings?tab=integrations')}
+        />
+      )}
 
       {/* ===================================================================== */}
       {/* TAB: Appearance */}
@@ -1527,5 +1570,19 @@ export default function SettingsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[40vh] flex items-center justify-center">
+          <div className="h-6 w-6 border-2 border-zinc-900 dark:border-white border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <SettingsPageContent />
+    </Suspense>
   );
 }

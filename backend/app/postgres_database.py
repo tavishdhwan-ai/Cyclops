@@ -1361,17 +1361,339 @@ def delete_user_account(user_id: str) -> bool:
                 cur.execute("DELETE FROM public.push_subscriptions WHERE user_id::text = %s;", (str(user_id),))
                 cur.execute("DELETE FROM public.push_login_transactions WHERE user_id::text = %s;", (str(user_id),))
                 cur.execute("DELETE FROM public.auth_audit_events WHERE user_id::text = %s;", (str(user_id),))
-                # 2. Groundwork tables (if present)
-                try:
-                    cur.execute("DELETE FROM public.connected_accounts WHERE user_id::text = %s;", (str(user_id),))
-                    cur.execute("DELETE FROM public.trust_edges WHERE user_id::text = %s;", (str(user_id),))
-                    cur.execute("DELETE FROM public.behavioral_baselines WHERE user_id::text = %s;", (str(user_id),))
-                    cur.execute("DELETE FROM public.trust_nodes WHERE user_id::text = %s;", (str(user_id),))
-                except Exception:
-                    pass
+                # 2. Groundwork & Gmail integration tables (if present)
+                for extra_tbl in (
+                    "gmail_oauth_transactions",
+                    "gmail_connections",
+                    "connected_accounts",
+                    "trust_edges",
+                    "behavioral_baselines",
+                    "trust_nodes",
+                ):
+                    try:
+                        cur.execute(f"DELETE FROM public.{extra_tbl} WHERE user_id::text = %s;", (str(user_id),))
+                    except Exception:
+                        pass
                 # 3. User profile
                 cur.execute("DELETE FROM public.user_profiles WHERE user_id::text = %s;", (str(user_id),))
     return True
+
+
+# ==============================================================================
+# Gmail OAuth Integration Persistence (Migration 006)
+# ==============================================================================
+
+def _pg_row_to_gmail_connection(r: Dict[str, Any]) -> Dict[str, Any]:
+    scopes = r.get("granted_scopes") or ["https://www.googleapis.com/auth/gmail.readonly"]
+    if isinstance(scopes, str):
+        try:
+            scopes = json.loads(scopes)
+        except Exception:
+            scopes = [scopes]
+    return {
+        "id": str(r["id"]),
+        "userId": str(r["user_id"]),
+        "gmailAddress": r["gmail_address"],
+        "encryptedRefreshToken": r["encrypted_refresh_token"],
+        "grantedScopes": list(scopes),
+        "status": r["status"],
+        "connectedAt": _dt_to_ts(r.get("connected_at")),
+        "lastVerifiedAt": _dt_to_ts(r.get("last_verified_at")),
+        "reauthRequired": bool(r.get("reauth_required", False)),
+        "reauthReason": r.get("reauth_reason"),
+        "accessTokenExpiresAt": _dt_to_ts(r.get("access_token_expires_at")),
+        "refreshTokenIssuedAt": _dt_to_ts(r.get("refresh_token_issued_at")),
+        "refreshTokenExpiresEstimateAt": _dt_to_ts(r.get("refresh_token_expires_estimate_at")),
+        "lastErrorCode": r.get("last_error_code"),
+        "createdAt": _dt_to_ts(r.get("created_at")),
+        "updatedAt": _dt_to_ts(r.get("updated_at")),
+    }
+
+
+def save_gmail_oauth_transaction(tx_data: Dict[str, Any]) -> None:
+    """Persists a short-lived, single-use Gmail OAuth state & encrypted PKCE verifier in PostgreSQL."""
+    safe_uid = normalize_uuid(tx_data["userId"])
+    now_dt = _ts_to_dt(tx_data.get("createdAt", time.time()))
+    exp_dt = _ts_to_dt(tx_data.get("expiresAt", time.time() + 600))
+    consumed_dt = _ts_to_dt(tx_data.get("consumedAt"))
+
+    query = """
+    INSERT INTO public.gmail_oauth_transactions (
+        state_hash, user_id, session_id, code_verifier_encrypted,
+        redirect_uri, requested_scope, action_type, expires_at,
+        consumed_at, created_at
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    """
+    params = (
+        tx_data["stateHash"],
+        safe_uid,
+        tx_data["sessionId"],
+        tx_data["codeVerifierEncrypted"],
+        tx_data["redirectUri"],
+        tx_data.get("requestedScope", "https://www.googleapis.com/auth/gmail.readonly"),
+        tx_data.get("actionType", "connect"),
+        exp_dt,
+        consumed_dt,
+        now_dt,
+    )
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+        conn.commit()
+
+
+def consume_gmail_oauth_transaction(
+    state_hash: str,
+    user_id: str,
+    session_id: str,
+    now_ts: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Atomically validates ownership, expiry, and single-use consumption using FOR UPDATE row locking.
+    """
+    now = now_ts if now_ts is not None else time.time()
+    now_dt = _ts_to_dt(now)
+    safe_uid = normalize_uuid(user_id)
+
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, state_hash, user_id, session_id, code_verifier_encrypted,
+                       redirect_uri, requested_scope, action_type, expires_at,
+                       consumed_at, created_at
+                FROM public.gmail_oauth_transactions
+                WHERE state_hash = %s
+                FOR UPDATE;
+                """,
+                (state_hash,),
+            )
+            r = cur.fetchone()
+            if not r:
+                conn.rollback()
+                return {"outcome": "not_found", "transaction": None}
+
+            if r.get("consumed_at") is not None:
+                conn.rollback()
+                return {"outcome": "replayed", "transaction": None}
+
+            exp_ts = _dt_to_ts(r.get("expires_at")) or 0.0
+            if exp_ts < now:
+                conn.rollback()
+                return {"outcome": "expired", "transaction": None}
+
+            row_uid = str(r["user_id"])
+            if row_uid != safe_uid or r["session_id"] != session_id:
+                cur.execute(
+                    """
+                    UPDATE public.gmail_oauth_transactions
+                    SET consumed_at = %s
+                    WHERE state_hash = %s AND consumed_at IS NULL;
+                    """,
+                    (now_dt, state_hash),
+                )
+                conn.commit()
+                return {"outcome": "ownership_mismatch", "transaction": None}
+
+            cur.execute(
+                """
+                UPDATE public.gmail_oauth_transactions
+                SET consumed_at = %s
+                WHERE state_hash = %s AND consumed_at IS NULL
+                RETURNING id;
+                """,
+                (now_dt, state_hash),
+            )
+            updated = cur.fetchone()
+            if not updated:
+                conn.rollback()
+                return {"outcome": "replayed", "transaction": None}
+
+            conn.commit()
+            return {
+                "outcome": "consumed",
+                "transaction": {
+                    "id": str(r["id"]),
+                    "userId": row_uid,
+                    "sessionId": r["session_id"],
+                    "codeVerifierEncrypted": r["code_verifier_encrypted"],
+                    "redirectUri": r["redirect_uri"],
+                    "requestedScope": r["requested_scope"],
+                    "actionType": r["action_type"],
+                    "expiresAt": exp_ts,
+                    "consumedAt": now,
+                    "createdAt": _dt_to_ts(r.get("created_at")),
+                },
+            }
+
+
+def delete_user_gmail_oauth_transactions(user_id: str) -> int:
+    """Removes Gmail OAuth transactions belonging to `user_id`."""
+    safe_uid = normalize_uuid(user_id)
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM public.gmail_oauth_transactions WHERE user_id = %s;", (safe_uid,))
+            affected = cur.rowcount
+        conn.commit()
+    return affected
+
+
+def get_gmail_connection(user_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves the isolated Gmail connection record for `user_id`."""
+    safe_uid = normalize_uuid(user_id)
+    if not safe_uid:
+        return None
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM public.gmail_connections WHERE user_id = %s LIMIT 1;",
+                (safe_uid,),
+            )
+            r = cur.fetchone()
+            return _pg_row_to_gmail_connection(r) if r else None
+
+
+def save_gmail_connection(conn_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Inserts or updates the single Gmail connection record for `user_id`."""
+    safe_uid = normalize_uuid(conn_data["userId"])
+    now = time.time()
+    now_dt = _ts_to_dt(now)
+    connected_dt = _ts_to_dt(conn_data.get("connectedAt", now))
+    verified_dt = _ts_to_dt(conn_data.get("lastVerifiedAt", now))
+    access_exp_dt = _ts_to_dt(conn_data.get("accessTokenExpiresAt"))
+    refresh_issued_dt = _ts_to_dt(conn_data.get("refreshTokenIssuedAt", now))
+    refresh_est_dt = _ts_to_dt(conn_data.get("refreshTokenExpiresEstimateAt"))
+    created_dt = _ts_to_dt(conn_data.get("createdAt", now))
+    scopes = list(conn_data.get("grantedScopes", ["https://www.googleapis.com/auth/gmail.readonly"]))
+
+    query = """
+    INSERT INTO public.gmail_connections (
+        user_id, gmail_address, encrypted_refresh_token, granted_scopes,
+        status, connected_at, last_verified_at, reauth_required, reauth_reason,
+        access_token_expires_at, refresh_token_issued_at, refresh_token_expires_estimate_at,
+        last_error_code, created_at, updated_at
+    ) VALUES (
+        %s, %s, %s, %s,
+        %s, %s, %s, %s, %s,
+        %s, %s, %s,
+        %s, %s, %s
+    )
+    ON CONFLICT ON CONSTRAINT uq_gmail_connections_user_id DO UPDATE SET
+        gmail_address = EXCLUDED.gmail_address,
+        encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
+        granted_scopes = EXCLUDED.granted_scopes,
+        status = EXCLUDED.status,
+        connected_at = EXCLUDED.connected_at,
+        last_verified_at = EXCLUDED.last_verified_at,
+        reauth_required = EXCLUDED.reauth_required,
+        reauth_reason = EXCLUDED.reauth_reason,
+        access_token_expires_at = EXCLUDED.access_token_expires_at,
+        refresh_token_issued_at = EXCLUDED.refresh_token_issued_at,
+        refresh_token_expires_estimate_at = EXCLUDED.refresh_token_expires_estimate_at,
+        last_error_code = EXCLUDED.last_error_code,
+        updated_at = EXCLUDED.updated_at;
+    """
+    params = (
+        safe_uid,
+        conn_data["gmailAddress"].strip().lower(),
+        conn_data["encryptedRefreshToken"],
+        scopes,
+        conn_data.get("status", "connected"),
+        connected_dt,
+        verified_dt,
+        bool(conn_data.get("reauthRequired", False)),
+        conn_data.get("reauthReason"),
+        access_exp_dt,
+        refresh_issued_dt,
+        refresh_est_dt,
+        conn_data.get("lastErrorCode"),
+        created_dt,
+        now_dt,
+    )
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+        conn.commit()
+    return get_gmail_connection(safe_uid)
+
+
+def mark_gmail_connection_reauth_required(
+    user_id: str,
+    reason: str,
+    error_code: Optional[str] = None,
+) -> bool:
+    """Marks an existing Gmail connection as requiring reauthorisation."""
+    safe_uid = normalize_uuid(user_id)
+    now_dt = _ts_to_dt(time.time())
+    query = """
+    UPDATE public.gmail_connections
+    SET status = 'reauth_required',
+        reauth_required = TRUE,
+        reauth_reason = %s,
+        last_error_code = %s,
+        access_token_expires_at = NULL,
+        updated_at = %s
+    WHERE user_id = %s;
+    """
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (reason, error_code, now_dt, safe_uid))
+            affected = cur.rowcount
+        conn.commit()
+    return affected > 0
+
+
+def update_gmail_connection_verified(
+    user_id: str,
+    verified_at: float,
+    access_token_expires_at: Optional[float] = None,
+    encrypted_refresh_token: Optional[str] = None,
+    refresh_token_issued_at: Optional[float] = None,
+    refresh_token_expires_estimate_at: Optional[float] = None,
+) -> bool:
+    """Updates verification and expiry metadata after successful Gmail profile verification."""
+    safe_uid = normalize_uuid(user_id)
+    now_dt = _ts_to_dt(time.time())
+    query = """
+    UPDATE public.gmail_connections
+    SET status = 'connected',
+        reauth_required = FALSE,
+        reauth_reason = NULL,
+        last_error_code = NULL,
+        last_verified_at = %s,
+        access_token_expires_at = COALESCE(%s, access_token_expires_at),
+        encrypted_refresh_token = COALESCE(%s, encrypted_refresh_token),
+        refresh_token_issued_at = COALESCE(%s, refresh_token_issued_at),
+        refresh_token_expires_estimate_at = COALESCE(%s, refresh_token_expires_estimate_at),
+        updated_at = %s
+    WHERE user_id = %s;
+    """
+    params = (
+        _ts_to_dt(verified_at),
+        _ts_to_dt(access_token_expires_at),
+        encrypted_refresh_token,
+        _ts_to_dt(refresh_token_issued_at),
+        _ts_to_dt(refresh_token_expires_estimate_at),
+        now_dt,
+        safe_uid,
+    )
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            affected = cur.rowcount
+        conn.commit()
+    return affected > 0
+
+
+def delete_gmail_connection(user_id: str) -> bool:
+    """Deletes stored Gmail credentials and connection metadata for `user_id`."""
+    safe_uid = normalize_uuid(user_id)
+    with get_pg_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM public.gmail_connections WHERE user_id = %s;", (safe_uid,))
+            affected = cur.rowcount
+        conn.commit()
+    return affected > 0
 
 
 # Method aliases for parity across layers

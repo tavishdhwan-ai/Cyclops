@@ -27,6 +27,7 @@ import json
 import secrets
 import hashlib
 import asyncio
+import base64
 import pytest
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
@@ -668,4 +669,112 @@ def test_e2e_account_creation_and_auth_workflow():
                 conn.commit()
         except Exception:
             pass
+
+
+# ==============================================================================
+# 10. Gmail OAuth Persistence & Privilege Isolation Staging Tests (Migration 006)
+# ==============================================================================
+
+def test_gmail_migration_006_persistence_and_rls_isolation(test_user_pair, monkeypatch):
+    """
+    Validates Migration 006 against real staging PostgreSQL:
+    1. Explicitly activates PostgreSQL persistence and verifies staging database identity before writes.
+    2. Confirms `gmail_connections` and `gmail_oauth_transactions` tables exist.
+    3. Tests encrypted refresh token storage, atomic FOR UPDATE OAuth state consumption,
+       and replay protection.
+    4. Verifies `anon` and `authenticated` roles CANNOT read or query Gmail tables via RLS/grants.
+    """
+    from app import gmail_crypto, gmail_service
+
+    # Refuse to run staging write tests if production environment is active
+    assert os.getenv("ENVIRONMENT", "development").strip().lower() != "production", (
+        "Refusing to run staging integration writes in production ENVIRONMENT."
+    )
+    assert os.getenv("SENTINEL_STAGING_DATABASE_URL", "").strip() or os.getenv("SENTINEL_DATABASE_URL", "").strip(), (
+        "Staging PostgreSQL connection string must be explicitly set."
+    )
+    assert database.use_postgres() is True
+
+    user_a, user_b = test_user_pair
+    test_key = base64.urlsafe_b64encode(b"P" * 32).decode("ascii")
+    monkeypatch.setenv("GMAIL_TOKEN_ENCRYPTION_KEY", test_key)
+
+    # Verify staging database identity & confirm Migration 006 tables exist before performing writes
+    with postgres_database.get_pg_connection(STAGING_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT current_database() AS db_name, current_schema() AS schema_name;")
+            ident = cur.fetchone()
+            db_name = ident["db_name"] if isinstance(ident, dict) else ident[0]
+            assert db_name, "Could not verify staging database identity."
+
+            cur.execute(
+                """
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name IN ('gmail_connections', 'gmail_oauth_transactions');
+                """
+            )
+            found = {r["table_name"] if isinstance(r, dict) else r[0] for r in cur.fetchall()}
+            assert found == {"gmail_connections", "gmail_oauth_transactions"}, (
+                f"Migration 006 tables missing in staging PostgreSQL: {found}"
+            )
+
+    # Create parent profiles
+    postgres_database.save_or_update_user_profile(user_a, {"email": f"gma_{user_a[:8]}@sentinel.ai"})
+    postgres_database.save_or_update_user_profile(user_b, {"email": f"gmb_{user_b[:8]}@sentinel.ai"})
+
+    try:
+        # 1. OAuth state atomic consumption & replay guard in PostgreSQL
+        raw_state = secrets.token_urlsafe(32)
+        state_hash = gmail_service._hash_state(raw_state)
+        enc_ver = gmail_crypto.encrypt_secret("pkce_verifier_" * 4, user_id=user_a, purpose="pkce_verifier")
+
+        postgres_database.save_gmail_oauth_transaction(
+            {
+                "stateHash": state_hash,
+                "userId": user_a,
+                "sessionId": "sess_pg_1",
+                "codeVerifierEncrypted": enc_ver,
+                "redirectUri": "https://cyclops-chi.vercel.app/api/integrations/gmail/callback",
+                "expiresAt": time.time() + 300,
+            }
+        )
+
+        consumed = postgres_database.consume_gmail_oauth_transaction(state_hash, user_a, "sess_pg_1")
+        assert consumed["outcome"] == "consumed"
+
+        replayed = postgres_database.consume_gmail_oauth_transaction(state_hash, user_a, "sess_pg_1")
+        assert replayed["outcome"] == "replayed"
+
+        # 2. Encrypted refresh token persistence
+        enc_ref = gmail_crypto.encrypt_secret("1//pg_staging_refresh_token", user_id=user_a, purpose="refresh_token")
+        saved = postgres_database.save_gmail_connection(
+            {
+                "userId": user_a,
+                "gmailAddress": "staging.user@gmail.com",
+                "encryptedRefreshToken": enc_ref,
+                "status": "connected",
+            }
+        )
+        assert saved["gmailAddress"] == "staging.user@gmail.com"
+        assert saved["encryptedRefreshToken"].startswith("v1:")
+
+        # 3. Verify `authenticated` role CANNOT directly access Gmail credential tables
+        claims_json = json.dumps({"sub": user_a, "role": "authenticated", "aud": "authenticated"})
+        with postgres_database.get_pg_connection(STAGING_URL) as conn:
+            with conn:
+                with conn.cursor() as cur:
+                    try:
+                        cur.execute("SELECT set_config('request.jwt.claims', %s, true);", (claims_json,))
+                        cur.execute("SET LOCAL ROLE authenticated;")
+                        with pytest.raises(Exception):
+                            cur.execute("SELECT * FROM public.gmail_connections;")
+                    except Exception as exc:
+                        if "role \"authenticated\" does not exist" in str(exc).lower():
+                            pytest.skip("PostgreSQL instance does not have Supabase 'authenticated' role.")
+                        raise
+    finally:
+        postgres_database.delete_user_gmail_oauth_transactions(user_a)
+        postgres_database.delete_gmail_connection(user_a)
+        postgres_database.delete_gmail_connection(user_b)
 

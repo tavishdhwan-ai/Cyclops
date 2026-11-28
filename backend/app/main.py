@@ -868,5 +868,15 @@ async def push_login_complete_endpoint(
     )
 
 
+# ==============================================================================
+# Gmail OAuth 2.0 Integration Endpoints (Stage 1: Secure Account Connection)
+# ==============================================================================
+
+from app.gmail_routes import router as gmail_integration_router
+
+app.include_router(gmail_integration_router)
+
+
+
 
 
